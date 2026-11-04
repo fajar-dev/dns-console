@@ -1,0 +1,19 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+@theme static {
+  --font-sans: "Manrope", sans-serif;
+
+  --color-green-50: #F2FAF6;
+  --color-green-100: #DEFAF0;
+  --color-green-200: #B7F0D8;
+  --color-green-300: #7ADDB3;
+  --color-green-400: #20A66D;
+  --color-green-500: #0E7E4E;
+  /* Base */
+  --color-green-600: #09683F;
+  --color-green-700: #065333;
+  --color-green-800: #05422A;
+  --color-green-900: #053723;
+  --color-green-950: #021E12;
+}
