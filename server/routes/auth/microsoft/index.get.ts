@@ -1,3 +1,6 @@
+import { microsoftAuth } from '../../../composition/auth'
+import { defineEventHandler, sendRedirect } from 'h3'
+
 export default defineEventHandler(async (event) => {
   const auth = microsoftAuth()
   auth.identity.clear(event)

@@ -1,50 +1,17 @@
 <script setup lang="ts">
-import type { LogPage, LogQuery } from '#shared/types/logs'
-
-const page = ref(1)
-const pageSize = ref(25)
-const search = ref('')
-const debouncedSearch = ref('')
-const outcome = ref<LogQuery['outcome']>('all')
-const category = ref<LogQuery['category']>('all')
-const outcomes = [{ label: 'All statuses', value: 'all' }, { label: 'Success', value: 'success' }, { label: 'Failed', value: 'failure' }]
-const categories = [{ label: 'All changes', value: 'all' }, { label: 'DNS records', value: 'dns' }, { label: 'Tunnel routes', value: 'route' }]
-watch(search, (value, _old, onCleanup) => {
-  const timer = setTimeout(() => {
-    debouncedSearch.value = value.trim()
-  }, 300)
-  onCleanup(() => clearTimeout(timer))
-})
-watch([debouncedSearch, outcome, category, pageSize], () => {
-  page.value = 1
-}, { flush: 'sync' })
-const query = computed(() => ({ page: page.value, pageSize: pageSize.value, search: debouncedSearch.value, outcome: outcome.value, category: category.value }))
-const { data, error, status } = useLazyFetch('/api/logs', { server: false, query })
-const loading = computed(() => status.value === 'idle' || status.value === 'pending')
-const result = computed<LogPage | null>(() => data.value ?? null)
-const entries = computed(() => result.value?.entries ?? [])
-const filtered = computed(() => debouncedSearch.value || outcome.value !== 'all' || category.value !== 'all')
-const rangeStart = computed(() => result.value?.total ? (result.value.page - 1) * result.value.pageSize + 1 : 0)
-const rangeEnd = computed(() => result.value ? rangeStart.value + entries.value.length - (entries.value.length ? 1 : 0) : 0)
-watch(() => result.value?.page, (value) => {
-  if (value && status.value === 'success') page.value = value
-})
-const dateFormatter = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Jakarta' })
-const timeFormatter = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Jakarta' })
-function actionLabel(action: string) {
-  const [resource, operation] = action.split('.')
-  const labels: Record<string, string> = { create: 'created', update: 'updated', delete: 'deleted', save: 'saved' }
-  return `${resource === 'dns' ? 'DNS record' : 'Tunnel route'} ${labels[operation ?? ''] ?? operation ?? ''}`
-}
+const { metrics, page, pageSize, search, outcome, category, outcomes, categories, result, entries, error, loading, filtered, dateFormatter, timeFormatter, actionLabel } = useLogs()
 </script>
 
 <template>
   <div :aria-busy="loading">
     <PageHeading
-      eyebrow="Workspace"
+      eyebrow="Change tracking"
+      icon="i-lucide-logs"
       title="Logs"
       description="Track DNS and tunnel changes made through this console."
     />
+
+    <ConsoleMetrics :items="metrics" />
 
     <section
       class="overflow-hidden rounded-lg border border-default bg-default"
@@ -71,14 +38,6 @@ function actionLabel(action: string) {
           >
             {{ result.total.toLocaleString() }}
           </UBadge>
-        </div>
-        <div
-          v-if="result"
-          class="flex items-center gap-4 text-xs text-muted"
-          aria-live="polite"
-        >
-          <span class="flex items-center gap-1.5"><span class="size-1.5 rounded-sm bg-primary" />{{ result.summary.success.toLocaleString() }} successful</span>
-          <span class="flex items-center gap-1.5"><span class="size-1.5 rounded-sm bg-error" />{{ result.summary.failure.toLocaleString() }} failed</span>
         </div>
       </div>
 
@@ -185,10 +144,12 @@ function actionLabel(action: string) {
             >
               <td class="px-5 py-4 align-top">
                 <div class="flex gap-3">
-                  <span class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-muted text-muted"><UIcon
-                    :name="entry.action.startsWith('dns.') ? 'i-lucide-globe' : 'i-lucide-network'"
-                    class="size-4"
-                  /></span>
+                  <span class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-muted text-muted">
+                    <UIcon
+                      :name="entry.action.startsWith('dns.') ? 'i-lucide-globe' : 'i-lucide-network'"
+                      class="size-4"
+                    />
+                  </span>
                   <div class="min-w-44">
                     <p class="font-medium text-highlighted">
                       {{ actionLabel(entry.action) }}
@@ -226,45 +187,23 @@ function actionLabel(action: string) {
                 <time
                   :datetime="entry.timestamp"
                   class="text-xs text-toned"
-                >{{ dateFormatter.format(new Date(entry.timestamp)) }}<span class="mt-1 block text-dimmed">{{ timeFormatter.format(new Date(entry.timestamp)) }} WIB</span></time>
+                >{{ dateFormatter.format(new Date(entry.timestamp)) }}<span class="mt-1 block text-dimmed">{{ timeFormatter.format(new Date(entry.timestamp)) }} WIB</span>
+                </time>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <div class="flex flex-wrap items-center justify-between gap-4 border-t border-muted px-5 py-3.5">
-        <div class="flex flex-wrap items-center gap-4 text-xs text-muted">
-          <span
-            v-if="loading"
-            role="status"
-          >Loading logs…</span>
-          <span
-            v-else-if="result && !error"
-            aria-live="polite"
-          >{{ rangeStart.toLocaleString() }}–{{ rangeEnd.toLocaleString() }} of {{ result.total.toLocaleString() }} logs</span>
-          <div class="flex items-center gap-2">
-            <span>Rows per page</span><USelect
-              v-model="pageSize"
-              :items="[10, 25, 50, 100]"
-              aria-label="Logs per page"
-              size="xs"
-              class="w-18"
-              :disabled="loading"
-            />
-          </div>
-        </div>
-        <UPagination
-          v-if="result && !error"
-          v-model:page="page"
-          :total="result.total"
-          :items-per-page="pageSize"
-          :sibling-count="1"
-          :disabled="loading"
-          size="xs"
-          :show-edges="false"
-        />
-      </div>
+      <TablePagination
+        v-model:page="page"
+        v-model:page-size="pageSize"
+        :total="result?.total ?? 0"
+        label="logs"
+        :loading="loading"
+        :error="!!error"
+        class="border-t border-muted"
+      />
     </section>
   </div>
 </template>

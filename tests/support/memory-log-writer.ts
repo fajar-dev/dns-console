@@ -1,4 +1,4 @@
-import type { LogWriter } from '../../server/domain/ports'
+import type { LogWriter } from '../../server/domain/log-writer'
 import type { NewLogEntry } from '../../shared/types/logs'
 
 export class MemoryLogWriter implements LogWriter {

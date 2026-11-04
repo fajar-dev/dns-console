@@ -1,57 +1,39 @@
 <script setup lang="ts">
-import type { DnsRecord } from '#shared/types/cloudflare'
 import { editableDnsTypes } from '#shared/validation/cloudflare'
 
-const { data: zones, error: zonesError, status: zonesStatus } = useLazyFetch('/api/zones', { key: 'cloudflare-zones', server: false, default: () => [] })
-const selectedZone = ref(zones.value[0]?.id ?? '')
-watch(zones, (value) => {
-  if (!value.some(zone => zone.id === selectedZone.value)) selectedZone.value = value[0]?.id ?? ''
-})
-const zone = computed(() => zones.value.find(item => item.id === selectedZone.value))
-const { data: records, error, status, refresh: reloadRecords } = useLazyAsyncData(
-  () => `dns-records:${selectedZone.value}`,
-  (_app, { signal }) => selectedZone.value ? $fetch<DnsRecord[]>(`/api/zones/${selectedZone.value}/records`, { signal }) : Promise.resolve([]),
-  { server: false, default: () => [] }
-)
-const zonesLoading = computed(() => zonesStatus.value === 'idle' || zonesStatus.value === 'pending')
-const recordsLoading = computed(() => zonesLoading.value || (!!selectedZone.value && (status.value === 'idle' || status.value === 'pending')))
-const initialLoading = computed(() => recordsLoading.value && !records.value.length)
-const search = ref('')
-const type = ref('All types')
-const page = ref(1)
-const modal = ref(false)
-const editing = ref<DnsRecord>()
-const deleting = ref<DnsRecord>()
-const { busy, mutate } = useConsole()
-const filtered = computed(() => records.value.filter(record => (type.value === 'All types' || record.type === type.value) && `${record.name} ${record.content}`.toLowerCase().includes(search.value.toLowerCase())))
-const visible = computed(() => filtered.value.slice((page.value - 1) * 15, page.value * 15))
-watch([search, type, selectedZone], () => {
-  page.value = 1
-})
-const stats = computed(() => [
-  { label: 'Domains', value: zonesError.value ? '—' : zones.value.length, loading: zonesLoading.value && !zones.value.length, icon: 'i-lucide-globe' },
-  { label: 'DNS records', value: error.value || zonesError.value ? '—' : records.value.length, loading: initialLoading.value, icon: 'i-lucide-list-tree' },
-  { label: 'Proxied records', value: error.value || zonesError.value ? '—' : records.value.filter(record => record.proxied).length, loading: initialLoading.value, icon: 'i-lucide-shield-check' }
-])
-function open(record?: DnsRecord) {
-  editing.value = record
-  modal.value = true
-}
-async function saved() {
-  modal.value = false
-  await reloadRecords()
-}
-async function remove() {
-  if (!deleting.value) return
-  if (await mutate(() => $fetch(`/api/zones/${selectedZone.value}/records/${deleting.value!.id}`, { method: 'DELETE', body: {} }), 'DNS record deleted')) deleting.value = undefined
-  await reloadRecords()
-}
+const {
+  zones,
+  zonesError,
+  zonesLoading,
+  selectedZone,
+  zone,
+  records,
+  error,
+  recordsLoading,
+  initialLoading,
+  search,
+  type,
+  modal,
+  editing,
+  deleting,
+  busy,
+  filtered,
+  page,
+  pageSize,
+  visible,
+  stats,
+  recordTypes,
+  open,
+  saved,
+  remove
+} = useDnsRecords()
 </script>
 
 <template>
   <div :aria-busy="recordsLoading || busy">
     <PageHeading
       eyebrow="Network control"
+      icon="i-lucide-globe"
       title="DNS records"
       description="Manage your domains and the records that connect them to your services."
     >
@@ -67,60 +49,31 @@ async function remove() {
       :error="zonesError"
       class="mb-6"
     />
-    <div class="mb-8 grid gap-4 sm:grid-cols-3">
-      <UCard
-        v-for="stat in stats"
-        :key="stat.label"
-      >
-        <div class="flex items-start justify-between">
-          <div>
-            <p class="text-sm text-muted">
-              {{ stat.label }}
-            </p>
-            <div
-              v-if="stat.loading"
-              role="status"
-              class="mt-3"
-            >
-              <span class="sr-only">Loading {{ stat.label }}</span>
-              <USkeleton
-                class="h-8 w-16"
-                aria-hidden="true"
-              />
-            </div>
-            <p
-              v-else
-              class="mt-3 text-2xl font-medium tracking-tight text-highlighted"
-            >
-              {{ stat.value }}
-            </p>
-          </div><span class="flex size-8 items-center justify-center rounded-md bg-default"><UIcon
-            :name="stat.icon"
-            class="size-4 text-muted"
-          /></span>
-        </div>
-      </UCard>
-    </div>
-    <UCard :ui="{ body: 'p-0 sm:p-0' }">
+    <ConsoleMetrics :items="stats" />
+    <UCard :ui="{ body: 'p-0 sm:p-0', footer: 'p-0 sm:p-0' }">
       <template #header>
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div class="flex items-center gap-2">
             <UIcon
               name="i-lucide-globe"
               class="text-primary"
-            /><h2 class="font-semibold">
+            />
+            <h2 class="font-semibold">
               Domain records
-            </h2><USkeleton
+            </h2>
+            <USkeleton
               v-if="initialLoading"
               class="h-5 w-7"
-            /><UBadge
+            />
+            <UBadge
               v-else
               variant="subtle"
               color="neutral"
             >
               {{ filtered.length }}
             </UBadge>
-          </div><USelect
+          </div>
+          <USelect
             v-model="selectedZone"
             :items="zones.map(item => ({ label: item.name, value: item.id }))"
             placeholder="Select a domain"
@@ -139,13 +92,39 @@ async function remove() {
           class="min-w-48 flex-1"
           aria-label="Search DNS records"
           :disabled="initialLoading || !zone"
-        /><USelect
+        />
+        <USelect
           v-model="type"
           :items="['All types', ...new Set(records.map(record => record.type))]"
           class="w-36"
           aria-label="Record type"
           :disabled="initialLoading || !zone"
         />
+      </div>
+      <div
+        v-if="recordTypes.length && !initialLoading && !error"
+        class="flex flex-wrap items-center gap-2 border-b border-muted px-4 py-3"
+        aria-label="Quick record filters"
+      >
+        <UButton
+          label="All records"
+          size="xs"
+          color="neutral"
+          :variant="type === 'All types' ? 'outline' : 'ghost'"
+          :aria-pressed="type === 'All types'"
+          @click="type = 'All types'"
+        />
+        <UButton
+          v-for="item in recordTypes"
+          :key="item.value"
+          size="xs"
+          :color="type === item.value ? 'primary' : 'neutral'"
+          :variant="type === item.value ? 'outline' : 'ghost'"
+          :aria-pressed="type === item.value"
+          @click="type = item.value"
+        >
+          {{ item.value }} <span class="font-mono text-[10px] opacity-70">{{ item.count }}</span>
+        </UButton>
       </div>
       <TableSkeleton
         v-if="initialLoading"
@@ -163,11 +142,14 @@ async function remove() {
         <UIcon
           name="i-lucide-search"
           class="mb-3 size-9 text-dimmed"
-        /><h3 class="font-semibold">
+        />
+        <h3 class="font-semibold">
           {{ zone ? 'No matching records' : 'No domains available' }}
-        </h3><p class="mt-2 text-sm text-muted">
+        </h3>
+        <p class="mt-2 text-sm text-muted">
           {{ zone ? 'Try another search or add your first DNS record.' : 'Check your Cloudflare account and token permissions in Configuration.' }}
-        </p><UButton
+        </p>
+        <UButton
           v-if="!zone"
           to="/settings"
           label="Open configuration"
@@ -184,19 +166,25 @@ async function remove() {
             <tr>
               <th class="px-5 py-3 font-medium">
                 Type
-              </th><th class="px-5 py-3 font-medium">
+              </th>
+              <th class="px-5 py-3 font-medium">
                 Hostname
-              </th><th class="px-5 py-3 font-medium">
+              </th>
+              <th class="px-5 py-3 font-medium">
                 Content
-              </th><th class="px-5 py-3 font-medium">
+              </th>
+              <th class="px-5 py-3 font-medium">
                 Proxy
-              </th><th class="px-5 py-3 font-medium">
+              </th>
+              <th class="px-5 py-3 font-medium">
                 TTL
-              </th><th class="px-5 py-3 text-right font-medium">
+              </th>
+              <th class="sticky right-0 z-10 w-24 min-w-24 bg-default px-5 py-3 text-right font-medium shadow-[-1px_0_0_var(--ui-border-muted)]">
                 Actions
               </th>
             </tr>
-          </thead><tbody class="divide-y divide-muted">
+          </thead>
+          <tbody class="divide-y divide-muted">
             <tr
               v-for="record in visible"
               :key="record.id"
@@ -209,24 +197,30 @@ async function remove() {
                 >
                   {{ record.type }}
                 </UBadge>
-              </td><td class="px-5 py-4 font-medium whitespace-nowrap">
+              </td>
+              <td class="px-5 py-4 font-medium whitespace-nowrap">
                 {{ record.name }}
-              </td><td
+              </td>
+              <td
                 class="max-w-64 truncate px-5 py-4 font-mono text-xs text-muted"
                 :title="record.content"
               >
                 {{ record.content }}
-              </td><td class="px-5 py-4">
+              </td>
+              <td class="px-5 py-4">
                 <span
                   class="flex items-center gap-1.5 whitespace-nowrap text-xs"
                   :class="record.proxied ? 'text-primary' : 'text-muted'"
-                ><UIcon
-                  name="i-lucide-cloud"
-                  class="size-4"
-                />{{ record.proxied ? 'Proxied' : 'DNS only' }}</span>
-              </td><td class="px-5 py-4 text-xs text-muted">
+                >
+                  <UIcon
+                    name="i-lucide-cloud"
+                    class="size-4"
+                  />{{ record.proxied ? 'Proxied' : 'DNS only' }}</span>
+              </td>
+              <td class="px-5 py-4 text-xs text-muted">
                 {{ record.ttl === 1 ? 'Auto' : `${record.ttl}s` }}
-              </td><td class="px-5 py-4">
+              </td>
+              <td class="sticky right-0 z-10 w-24 min-w-24 bg-default px-5 py-4 shadow-[-1px_0_0_var(--ui-border-muted)]">
                 <div class="flex justify-end">
                   <RowActions
                     :label="`${record.type} ${record.name}`"
@@ -242,24 +236,13 @@ async function remove() {
         </table>
       </div>
       <template #footer>
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <USkeleton
-            v-if="initialLoading"
-            class="h-3 w-48"
-          />
-          <p
-            v-else
-            class="text-xs text-muted"
-          >
-            {{ filtered.length }} records
-          </p><UPagination
-            v-if="filtered.length > 15"
-            v-model:page="page"
-            :total="filtered.length"
-            :items-per-page="15"
-            size="sm"
-          />
-        </div>
+        <TablePagination
+          v-model:page="page"
+          v-model:page-size="pageSize"
+          :total="filtered.length"
+          :loading="recordsLoading"
+          :error="!!error || !!zonesError"
+        />
       </template>
     </UCard>
     <UModal
@@ -279,30 +262,18 @@ async function remove() {
         />
       </template>
     </UModal>
-    <UModal
+    <ConfirmationModal
       :open="!!deleting"
       title="Delete DNS record?"
       description="This change affects live DNS traffic and cannot be undone automatically."
-      @update:open="value => { if (!value && !busy) deleting = undefined }"
+      confirm-label="Delete record"
+      :busy="busy"
+      @update:open="value => { if (!value) deleting = undefined }"
+      @confirm="remove"
     >
-      <template #body>
-        <p class="text-sm">
-          Delete <strong>{{ deleting?.type }} {{ deleting?.name }}</strong>? If a tunnel uses this record, its public hostname may stop working.
-        </p><div class="mt-4 flex justify-end gap-2">
-          <UButton
-            label="Cancel"
-            color="neutral"
-            variant="outline"
-            :disabled="busy"
-            @click="deleting = undefined"
-          /><UButton
-            label="Delete record"
-            color="error"
-            :loading="busy"
-            @click="remove"
-          />
-        </div>
-      </template>
-    </UModal>
+      <p class="text-sm">
+        Delete <strong>{{ deleting?.type }} {{ deleting?.name }}</strong>? If a tunnel uses this record, its public hostname may stop working.
+      </p>
+    </ConfirmationModal>
   </div>
 </template>

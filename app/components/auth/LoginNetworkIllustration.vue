@@ -1,0 +1,137 @@
+<template>
+  <svg
+    viewBox="0 0 440 300"
+    class="h-full max-h-64 w-full text-primary"
+    fill="none"
+  >
+    <circle
+      cx="220"
+      cy="150"
+      r="118"
+      stroke="currentColor"
+      stroke-opacity="0.18"
+    />
+    <circle
+      cx="220"
+      cy="150"
+      r="85"
+      stroke="currentColor"
+      stroke-opacity="0.25"
+      stroke-dasharray="3 8"
+    />
+    <ellipse
+      cx="220"
+      cy="150"
+      rx="158"
+      ry="58"
+      transform="rotate(-30 220 150)"
+      stroke="currentColor"
+      stroke-opacity="0.45"
+    />
+    <ellipse
+      cx="220"
+      cy="150"
+      rx="158"
+      ry="58"
+      transform="rotate(30 220 150)"
+      stroke="currentColor"
+      stroke-opacity="0.25"
+    />
+    <path
+      d="M102 150H338M220 32V268"
+      stroke="currentColor"
+      stroke-opacity="0.12"
+    />
+    <circle
+      cx="220"
+      cy="150"
+      r="42"
+      fill="var(--ui-bg)"
+      stroke="currentColor"
+      stroke-opacity="0.6"
+    />
+    <circle
+      cx="220"
+      cy="150"
+      r="21"
+      stroke="currentColor"
+      stroke-width="1.5"
+    />
+    <ellipse
+      cx="220"
+      cy="150"
+      rx="9"
+      ry="21"
+      stroke="currentColor"
+      stroke-width="1.5"
+    />
+    <path
+      d="M200 143H240M200 157H240"
+      stroke="currentColor"
+      stroke-width="1.5"
+    />
+    <circle
+      cx="102"
+      cy="150"
+      r="5"
+      fill="currentColor"
+    />
+    <circle
+      cx="320"
+      cy="88"
+      r="5"
+      fill="currentColor"
+    />
+    <circle
+      cx="255"
+      cy="263"
+      r="5"
+      fill="currentColor"
+    />
+    <g
+      fill="var(--ui-bg)"
+      stroke="currentColor"
+      stroke-opacity="0.2"
+    >
+      <rect
+        x="12"
+        y="113"
+        width="92"
+        height="28"
+        rx="6"
+      />
+      <rect
+        x="324"
+        y="50"
+        width="102"
+        height="28"
+        rx="6"
+      />
+      <rect
+        x="270"
+        y="252"
+        width="90"
+        height="28"
+        rx="6"
+      />
+    </g>
+    <g
+      fill="currentColor"
+      class="font-sans text-[11px] font-medium"
+      text-anchor="middle"
+    >
+      <text
+        x="58"
+        y="131"
+      >DNS records</text>
+      <text
+        x="375"
+        y="68"
+      >Tunnel routes</text>
+      <text
+        x="315"
+        y="270"
+      >Audit logs</text>
+    </g>
+  </svg>
+</template>

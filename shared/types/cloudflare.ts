@@ -20,7 +20,7 @@ export interface DnsRecord {
 export interface Tunnel {
   id: string
   name: string
-  status: 'healthy' | 'degraded' | 'down' | 'inactive'
+  status: 'healthy' | 'degraded' | 'down' | 'inactive' | 'unknown'
   remote_config: boolean
   config_src?: string
   connections: { id: string, colo_name: string, client_version: string }[]
@@ -44,4 +44,30 @@ export interface RouteConfiguration {
   config: TunnelConfig
   version: string
   editable: boolean
+}
+
+export type EditableDnsType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'PTR'
+
+export interface DnsRecordInput {
+  type: EditableDnsType
+  name: string
+  content: string
+  ttl: number
+  proxied: boolean
+  priority?: number
+  comment: string
+}
+
+export interface RouteInput {
+  zoneId: string
+  hostname: string
+  service: string
+  version: string
+  index?: number
+}
+
+export interface DeleteRouteInput {
+  zoneId: string
+  version: string
+  index: number
 }

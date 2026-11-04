@@ -1,5 +1,5 @@
 import { readdir } from 'node:fs/promises'
-import { createLogPool } from '../server/infrastructure/mysql-pool'
+import { createLogPool } from '../server/infrastructure/mysql/mysql-pool'
 
 const url = process.env.NUXT_MYSQL_URL
 if (!url) throw new Error('Set NUXT_MYSQL_URL before running database migrations.')

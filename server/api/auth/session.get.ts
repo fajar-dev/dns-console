@@ -1,3 +1,7 @@
+import { apiHandler } from '../../http/api-handler'
+import { authConfigured } from '../../composition/auth'
+import { microsoftIdentity } from '../../http/identity'
+import { useRuntimeConfig } from '#imports'
 import type { AuthStatus } from '#shared/types/auth'
 
 export default apiHandler(async (event): Promise<AuthStatus> => {

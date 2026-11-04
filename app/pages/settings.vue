@@ -1,25 +1,16 @@
 <script setup lang="ts">
-const { data: session } = await useFetch('/api/auth/session')
-const { data: zones, error, status } = useLazyFetch('/api/zones', { key: 'cloudflare-zones', server: false, default: () => [] })
-const loading = computed(() => status.value === 'idle' || status.value === 'pending')
+import { environment } from '~/constants/configuration'
+
+const { session } = useAuth()
+const { data: zones, error, loading } = useZones()
 const initialLoading = computed(() => loading.value && !zones.value.length)
-const environment = [
-  { name: 'NUXT_CLOUDFLARE_API_TOKEN', description: 'Scoped Cloudflare API token with DNS and Tunnel permissions.' },
-  { name: 'NUXT_CLOUDFLARE_ACCOUNT_ID', description: 'The Cloudflare account containing your domains and tunnels.' },
-  { name: 'NUXT_APP_URL', description: 'Application origin used for the Microsoft sign-in callback and sign-out redirect.' },
-  { name: 'NUXT_ENTRA_TENANT_ID', description: 'Directory ID of your organization. Only this tenant can sign in.' },
-  { name: 'NUXT_ENTRA_CLIENT_ID', description: 'Application ID from your single-tenant Entra app registration.' },
-  { name: 'NUXT_ENTRA_CLIENT_SECRET', description: 'Client secret value from the Entra app registration; kept on the server.' },
-  { name: 'NUXT_ENTRA_APP_ROLE', description: 'Required Entra app role. Defaults to DNSConsole.Access; assign users or groups in Entra.' },
-  { name: 'NUXT_AUTH_SECRET', description: 'Random secret of at least 32 characters for encrypting session cookies.' },
-  { name: 'NUXT_MYSQL_URL', description: 'MySQL connection URL for persistent logs. Run bun run db:migrate before starting.' }
-]
 </script>
 
 <template>
   <div>
     <PageHeading
       eyebrow="Workspace setup"
+      icon="i-lucide-settings-2"
       title="Configuration"
       description="Connect your Cloudflare account using server-side environment variables."
     >
@@ -36,15 +27,18 @@ const environment = [
           <h2 class="font-semibold">
             Server environment
           </h2>
-        </template><p class="mb-5 text-sm leading-relaxed text-muted">
+        </template>
+        <p class="mb-5 text-sm leading-relaxed text-muted">
           Copy .env.example to .env for local development. Set these variables in your deployment environment for production, then restart the server. Secrets are never shown or editable in this panel.
-        </p><div class="divide-y divide-default">
+        </p>
+        <div class="divide-y divide-default">
           <div
             v-for="item in environment"
             :key="item.name"
             class="py-4 first:pt-0 last:pb-0"
           >
-            <code class="text-xs font-semibold text-primary">{{ item.name }}</code><p class="mt-1.5 text-sm text-muted">
+            <code class="text-xs font-semibold text-primary">{{ item.name }}</code>
+            <p class="mt-1.5 text-sm text-muted">
               {{ item.description }}
             </p>
           </div>
@@ -56,26 +50,31 @@ const environment = [
             <h2 class="font-semibold">
               Token permissions
             </h2>
-          </template><ul class="space-y-3 text-sm">
+          </template>
+          <ul class="space-y-3 text-sm">
             <li class="flex gap-2">
               <UIcon
                 name="i-lucide-check"
                 class="mt-0.5 text-primary"
               />Zone → Zone → Read
-            </li><li class="flex gap-2">
+            </li>
+            <li class="flex gap-2">
               <UIcon
                 name="i-lucide-check"
                 class="mt-0.5 text-primary"
               />Zone → DNS → Edit
-            </li><li class="flex gap-2">
+            </li>
+            <li class="flex gap-2">
               <UIcon
                 name="i-lucide-check"
                 class="mt-0.5 text-primary"
               />Account → Cloudflare Tunnel → Edit
             </li>
-          </ul><p class="mt-4 text-xs leading-relaxed text-muted">
+          </ul>
+          <p class="mt-4 text-xs leading-relaxed text-muted">
             Limit the token to the account and zones you intend to manage.
-          </p><UButton
+          </p>
+          <UButton
             class="mt-5"
             to="https://dash.cloudflare.com/profile/api-tokens"
             target="_blank"
@@ -83,7 +82,8 @@ const environment = [
             variant="soft"
             trailing-icon="i-lucide-arrow-up-right"
           />
-        </UCard><UCard>
+        </UCard>
+        <UCard>
           <template #header>
             <h2 class="font-semibold">
               Connection check
@@ -95,12 +95,14 @@ const environment = [
             aria-label="Checking Cloudflare connection"
             class="flex items-center gap-2"
           >
-            <USkeleton class="size-4" /><USkeleton class="h-4 w-40" />
+            <USkeleton class="size-4" />
+            <USkeleton class="h-4 w-40" />
           </div>
           <RequestError
             v-else-if="error"
             :error="error"
-          /><p
+          />
+          <p
             v-else
             class="flex items-center gap-2 text-sm"
           >

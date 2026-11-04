@@ -1,4 +1,6 @@
-import { authFailure } from '../../../application/auth-failure'
+import { entraConfig, microsoftAuth } from '../../../composition/auth'
+import { defineEventHandler, getRequestURL, sendRedirect } from 'h3'
+import { authFailure } from '../../../application/auth/auth-failure'
 
 export default defineEventHandler(async (event) => {
   const auth = microsoftAuth()

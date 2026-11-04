@@ -1,56 +1,43 @@
 <script setup lang="ts">
-import type { IngressRule, RouteConfiguration } from '#shared/types/cloudflare'
-
-const { data: tunnels, error, status } = useLazyFetch('/api/tunnels', { server: false, default: () => [] })
-const { data: zones, error: zonesError, status: zonesStatus } = useLazyFetch('/api/zones', { key: 'cloudflare-zones', server: false, default: () => [] })
-const selectedId = ref(tunnels.value[0]?.id ?? '')
-watch(tunnels, (value) => {
-  if (!value.some(tunnel => tunnel.id === selectedId.value)) selectedId.value = value[0]?.id ?? ''
-})
-const selected = computed(() => tunnels.value.find(tunnel => tunnel.id === selectedId.value))
-const { data: configuration, error: configError, status: configStatus, refresh: reloadConfiguration } = useLazyAsyncData(
-  () => `tunnel-configuration:${selectedId.value}`,
-  (_app, { signal }) => selectedId.value ? $fetch<RouteConfiguration>(`/api/tunnels/${selectedId.value}/routes`, { signal }) : Promise.resolve(null),
-  { server: false, default: () => null }
-)
-const tunnelsLoading = computed(() => status.value === 'idle' || status.value === 'pending')
-const initialLoading = computed(() => tunnelsLoading.value && !tunnels.value.length)
-const zonesLoading = computed(() => zonesStatus.value === 'idle' || zonesStatus.value === 'pending')
-const configLoading = computed(() => !!selectedId.value && (configStatus.value === 'idle' || configStatus.value === 'pending'))
-const configInitialLoading = computed(() => configLoading.value && !configuration.value)
-const rules = computed(() => (configuration.value?.config.ingress ?? []).map((rule, index) => ({ ...rule, index })).filter(rule => rule.hostname))
-const modal = ref(false)
-const editing = ref<{ rule: IngressRule, index: number }>()
-const deleting = ref<{ rule: IngressRule, index: number, version: string }>()
-const { busy, mutate } = useConsole()
-function badgeColor(status: string) {
-  return status === 'healthy' ? 'success' as const : status === 'degraded' ? 'warning' as const : 'neutral' as const
-}
-function open(rule?: IngressRule, index?: number) {
-  editing.value = rule && index !== undefined ? { rule, index } : undefined
-  modal.value = true
-}
-async function saved() {
-  modal.value = false
-  await reloadConfiguration()
-}
-async function remove() {
-  if (!deleting.value || !configuration.value) return
-  const hostname = deleting.value.rule.hostname
-  const zone = zones.value.filter(item => hostname === item.name || hostname?.endsWith(`.${item.name}`)).sort((a, b) => b.name.length - a.name.length)[0]
-  if (!zone) return
-  if (await mutate(() => $fetch(`/api/tunnels/${selectedId.value}/routes`, { method: 'DELETE', body: { zoneId: zone.id, index: deleting.value!.index, version: deleting.value!.version } }), 'Tunnel route removed')) deleting.value = undefined
-  await reloadConfiguration()
-}
-function canManage(hostname?: string) {
-  return zones.value.some(zone => hostname === zone.name || hostname?.endsWith(`.${zone.name}`))
-}
+const {
+  metrics,
+  tunnels,
+  error,
+  zones,
+  zonesError,
+  zonesLoading,
+  selectedId,
+  selected,
+  configuration,
+  configError,
+  configLoading,
+  configInitialLoading,
+  tunnelsLoading,
+  initialLoading,
+  rules,
+  routeSearch,
+  filteredRules,
+  page,
+  pageSize,
+  visibleRules,
+  modal,
+  editing,
+  deleting,
+  busy,
+  badgeColor,
+  open,
+  saved,
+  remove,
+  canManage,
+  reloadConfiguration
+} = useTunnelRoutes()
 </script>
 
 <template>
   <div :aria-busy="tunnelsLoading || configLoading || busy">
     <PageHeading
       eyebrow="Secure connectivity"
+      icon="i-lucide-network"
       title="Tunnels & routes"
       description="Connect public hostnames to services on your private infrastructure."
     />
@@ -59,226 +46,240 @@ function canManage(hostname?: string) {
       :error="error"
       class="mb-6"
     />
-    <USkeleton
-      v-if="initialLoading"
-      class="mb-8 h-5 w-48"
-    />
-    <div
-      v-else
-      class="mb-8 flex items-center gap-2 text-sm text-muted"
-    >
-      <span class="size-2 rounded-lg bg-primary" />{{ tunnels.filter(tunnel => tunnel.status === 'healthy').length }} healthy<span class="mx-2 text-dimmed">/</span>{{ tunnels.length }} total tunnels
-    </div>
-    <div
-      v-if="initialLoading"
-      class="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3"
-      role="status"
-      aria-live="polite"
-    >
-      <span class="sr-only">Loading tunnels</span>
-      <UCard
-        v-for="i in 3"
-        :key="i"
-        aria-hidden="true"
+    <ConsoleMetrics :items="metrics" />
+    <div class="grid overflow-hidden rounded-lg border border-default lg:grid-cols-[minmax(0,3fr)_minmax(0,7fr)]">
+      <TunnelSelector
+        v-model="selectedId"
+        :tunnels="tunnels"
+        :loading="initialLoading"
+        :error="!!error"
+      />
+      <section
+        class="flex min-w-0 flex-col border-t border-default lg:border-t-0 lg:border-l"
+        aria-labelledby="routes-title"
       >
-        <div class="mb-4 flex items-center justify-between">
-          <USkeleton class="size-9" /><USkeleton class="h-5 w-16" />
-        </div>
-        <USkeleton class="h-5 w-2/3" />
-        <USkeleton class="mt-2 h-3 w-full" />
-        <div class="mt-4 flex justify-between">
-          <USkeleton class="h-3 w-20" /><USkeleton class="h-3 w-28" />
-        </div>
-      </UCard>
-    </div>
-    <div
-      v-else-if="tunnels.length"
-      class="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3"
-    >
-      <button
-        v-for="tunnel in tunnels"
-        :key="tunnel.id"
-        class="rounded-lg border bg-default p-5 text-left transition hover:border-primary/60 focus-visible:outline-2 focus-visible:outline-primary"
-        :class="selectedId === tunnel.id ? 'border-primary/60 ring-1 ring-primary/10' : 'border-default'"
-        :aria-pressed="selectedId === tunnel.id"
-        @click="selectedId = tunnel.id"
-      >
-        <div class="mb-4 flex items-center justify-between">
-          <span class="flex size-9 items-center justify-center rounded-md bg-default"><UIcon
-            name="i-lucide-network"
-            class="size-4 text-primary"
-          /></span><UBadge
-            :color="badgeColor(tunnel.status)"
-            variant="subtle"
-            class="capitalize"
-          >
-            {{ tunnel.status }}
-          </UBadge>
-        </div>
-        <h2 class="truncate font-semibold">
-          {{ tunnel.name }}
-        </h2><p class="mt-1 truncate font-mono text-xs text-dimmed">
-          {{ tunnel.id }}
-        </p><div class="mt-4 flex items-center justify-between text-xs text-muted">
-          <span>{{ tunnel.connections?.length ?? 0 }} connections</span><span>{{ tunnel.remote_config || tunnel.config_src === 'cloudflare' ? 'Remote configuration' : 'Locally managed' }}</span>
-        </div>
-      </button>
-    </div>
-    <UCard
-      v-else-if="!error"
-      class="mb-8"
-    >
-      <div class="py-8 text-center">
-        <UIcon
-          name="i-lucide-network"
-          class="mb-3 size-10 text-dimmed"
-        /><h2 class="font-semibold">
-          No tunnels yet
-        </h2><p class="mx-auto mt-2 max-w-md text-sm text-muted">
-          Create a remotely managed tunnel in Cloudflare and run cloudflared on your server. Your tunnel will appear here.
-        </p><UButton
-          to="https://one.dash.cloudflare.com/"
-          target="_blank"
-          label="Open Cloudflare"
-          trailing-icon="i-lucide-arrow-up-right"
-          variant="soft"
-          class="mt-5"
-        />
-      </div>
-    </UCard>
-    <UCard
-      v-if="selected"
-      :ui="{ body: 'p-0 sm:p-0' }"
-    >
-      <template #header>
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 class="font-semibold">
-              Public hostname routes
-            </h2>
-            <USkeleton
-              v-if="configInitialLoading"
-              class="mt-2 h-3 w-48"
+        <header class="flex flex-wrap items-center justify-between gap-4 border-b border-default p-5">
+          <div class="flex items-start gap-3">
+            <UIcon
+              name="i-lucide-route"
+              class="mt-0.5 size-5 shrink-0 text-primary"
             />
-            <p
-              v-else
-              class="mt-1 text-xs text-muted"
-            >
-              {{ selected.name }} · {{ rules.length }} published routes
-            </p>
-          </div><UButton
+            <div>
+              <h2
+                id="routes-title"
+                class="text-sm font-semibold text-highlighted"
+              >
+                Public hostname routes
+              </h2>
+              <p class="mt-1.5 text-xs leading-5 text-muted">
+                Connect a public address to a service on your network.
+              </p>
+            </div>
+          </div>
+          <UButton
             label="Publish route"
             icon="i-lucide-plus"
-            :disabled="!configuration?.editable || !zones.length || configLoading || zonesLoading"
+            :disabled="!selected || !configuration?.editable || !zones.length || configLoading || zonesLoading"
             :loading="zonesLoading"
             @click="open()"
           />
+        </header>
+        <div
+          v-if="selected"
+          class="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-default px-5 py-3 text-xs"
+        >
+          <span class="flex min-w-0 items-center gap-2 font-medium text-highlighted">
+            <UIcon
+              name="i-lucide-network"
+              class="size-3.5 shrink-0 text-muted"
+            />
+            <span class="max-w-48 truncate">{{ selected.name }}</span>
+          </span>
+          <UBadge
+            :color="badgeColor(selected.status)"
+            variant="outline"
+            size="sm"
+            class="capitalize"
+          >
+            {{ selected.status }}
+          </UBadge>
+          <span class="text-muted">{{ selected.remote_config || selected.config_src === 'cloudflare' ? 'Remotely managed' : 'Locally managed' }}</span>
+          <USkeleton
+            v-if="configInitialLoading"
+            class="ml-auto h-3 w-20"
+          />
+          <span
+            v-else-if="!configError"
+            class="ml-auto text-muted tabular-nums"
+          >{{ rules.length }} routes</span>
         </div>
-      </template>
-      <TableSkeleton
-        v-if="configInitialLoading"
-        :columns="3"
-        :rows="3"
-        label="Loading tunnel routes"
-      />
-      <RequestError
-        v-else-if="configError"
-        :error="configError"
-        class="m-5"
-      />
-      <div
-        v-else-if="!configuration?.editable"
-        class="px-6 py-10 text-center"
-      >
-        <UIcon
-          name="i-lucide-lock-keyhole"
-          class="mb-3 size-8 text-dimmed"
+        <div
+          v-if="selected && configuration?.editable"
+          class="flex flex-wrap items-center justify-between gap-3 border-b border-default px-5 py-3"
+        >
+          <UInput
+            v-model="routeSearch"
+            icon="i-lucide-search"
+            placeholder="Search hostname or origin…"
+            aria-label="Search tunnel routes"
+            class="w-full sm:max-w-xs"
+            :disabled="configLoading"
+          />
+          <span
+            v-if="routeSearch"
+            class="text-xs text-muted"
+          >{{ filteredRules.length }} matching routes</span>
+        </div>
+        <TableSkeleton
+          v-if="initialLoading || configInitialLoading"
+          :columns="3"
+          :rows="5"
+          label="Loading tunnel routes"
         />
-        <h3 class="text-sm font-medium">
-          Locally managed tunnel
-        </h3>
-        <p class="mt-2 text-sm text-muted">
-          Edit routes in the configuration file on your origin server.
-        </p>
-      </div>
-      <div
-        v-else-if="!rules.length"
-        class="px-6 py-14 text-center"
-      >
-        <UIcon
-          name="i-lucide-route"
-          class="mb-3 size-9 text-dimmed"
-        /><h3 class="font-semibold">
-          Publish your first service
-        </h3><p class="mt-2 text-sm text-muted">
-          Connect a hostname to an origin service. DNS is configured for you.
-        </p>
-      </div>
-      <div
-        v-else
-        class="overflow-x-auto"
-      >
-        <table class="w-full text-left text-sm">
-          <thead class="bg-default text-xs text-muted">
-            <tr>
-              <th class="px-5 py-3 font-medium">
-                Public hostname
-              </th><th class="px-5 py-3 font-medium">
-                Origin service
-              </th><th class="px-5 py-3 text-right font-medium">
-                Actions
-              </th>
-            </tr>
-          </thead><tbody class="divide-y divide-muted">
-            <tr
-              v-for="rule in rules"
-              :key="rule.index"
-              class="hover:bg-default"
-            >
-              <td class="px-5 py-5">
-                <p class="font-medium">
-                  {{ rule.hostname }}
-                </p><p
-                  v-if="rule.path"
-                  class="mt-1 font-mono text-xs text-muted"
-                >
-                  Path: {{ rule.path }}
-                </p>
-              </td><td class="px-5 py-5 font-mono text-xs text-muted">
-                <span class="flex items-center gap-2"><UIcon
-                  name="i-lucide-arrow-right"
-                  class="text-dimmed"
-                />{{ rule.service }}</span>
-              </td><td class="px-5 py-5">
-                <div class="flex justify-end">
-                  <RowActions
-                    :label="rule.hostname ?? 'tunnel route'"
-                    :disabled="configLoading || busy || !canManage(rule.hostname)"
-                    @edit="open(rule, rule.index)"
-                    @delete="deleting = { rule, index: rule.index, version: configuration?.version ?? '' }"
-                  />
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <template #footer>
-        <p class="flex items-center gap-2 text-xs text-muted">
+        <RequestError
+          v-else-if="configError"
+          :error="configError"
+          class="m-5"
+        />
+        <div
+          v-else-if="!selected"
+          class="flex min-h-72 flex-col items-center justify-center px-6 py-12 text-center"
+        >
           <UIcon
-            name="i-lucide-shield-check"
-            class="text-primary"
-          />Catch-all and existing origin settings are preserved. Access policies are managed separately in Cloudflare.
+            name="i-lucide-network"
+            class="mb-4 size-9 text-primary"
+          />
+          <h3 class="text-sm font-semibold text-highlighted">
+            Select a tunnel to get started
+          </h3>
+          <p class="mt-2 max-w-xs text-sm leading-6 text-muted">
+            Its public hostnames and origin services will appear here.
+          </p>
+        </div>
+        <div
+          v-else-if="!configuration?.editable"
+          class="flex min-h-72 flex-col items-center justify-center px-6 py-12 text-center"
+        >
+          <UIcon
+            name="i-lucide-lock-keyhole"
+            class="mb-4 size-8 text-muted"
+          />
+          <h3 class="text-sm font-semibold text-highlighted">
+            Locally managed tunnel
+          </h3>
+          <p class="mt-2 max-w-sm text-sm leading-6 text-muted">
+            Edit routes in the configuration file on your origin server.
+          </p>
+        </div>
+        <div
+          v-else-if="!filteredRules.length"
+          class="flex min-h-72 flex-col items-center justify-center px-6 py-12 text-center"
+        >
+          <UIcon
+            :name="routeSearch ? 'i-lucide-search-x' : 'i-lucide-route'"
+            class="mb-4 size-9 text-primary"
+          />
+          <h3 class="text-sm font-semibold text-highlighted">
+            {{ routeSearch ? 'No matching routes' : 'Publish your first service' }}
+          </h3>
+          <p class="mt-2 max-w-sm text-sm leading-6 text-muted">
+            {{ routeSearch ? 'Try another hostname or origin service.' : 'Add a public hostname and point it to your origin. DNS is configured for you.' }}
+          </p>
+        </div>
+        <div
+          v-else
+          class="overflow-x-auto"
+        >
+          <table class="w-full text-left text-sm">
+            <thead class="border-b border-muted text-xs text-muted">
+              <tr>
+                <th
+                  scope="col"
+                  class="px-5 py-3 font-medium"
+                >
+                  Public hostname
+                </th>
+                <th
+                  scope="col"
+                  class="px-5 py-3 font-medium"
+                >
+                  Origin service
+                </th>
+                <th
+                  scope="col"
+                  class="sticky right-0 z-10 w-20 min-w-20 bg-default px-5 py-3 text-right font-medium shadow-[-1px_0_0_var(--ui-border-muted)]"
+                >
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-muted">
+              <tr
+                v-for="rule in visibleRules"
+                :key="rule.index"
+                class="transition-colors hover:bg-inverted/[0.02]"
+              >
+                <td class="min-w-48 px-5 py-4 align-top">
+                  <div class="flex items-start gap-2.5">
+                    <UIcon
+                      name="i-lucide-globe"
+                      class="mt-0.5 size-4 shrink-0 text-primary"
+                    />
+                    <div>
+                      <p class="font-medium break-all text-highlighted">
+                        {{ rule.hostname }}
+                      </p>
+                      <p
+                        v-if="rule.path"
+                        class="mt-1 font-mono text-xs break-all text-muted"
+                      >
+                        Path: {{ rule.path }}
+                      </p>
+                    </div>
+                  </div>
+                </td>
+                <td class="min-w-44 px-5 py-4 align-top">
+                  <span class="flex items-start gap-2 font-mono text-xs leading-5 break-all text-toned">
+                    <UIcon
+                      name="i-lucide-arrow-right"
+                      class="mt-0.5 size-3.5 shrink-0 text-dimmed"
+                    />
+                    {{ rule.service }}
+                  </span>
+                </td>
+                <td class="sticky right-0 z-10 w-20 min-w-20 bg-default px-5 py-4 align-top shadow-[-1px_0_0_var(--ui-border-muted)]">
+                  <div class="flex justify-end">
+                    <RowActions
+                      :label="rule.hostname ?? 'tunnel route'"
+                      :disabled="configLoading || busy || !canManage(rule.hostname)"
+                      @edit="open(rule, rule.index)"
+                      @delete="deleting = { rule, index: rule.index, version: configuration?.version ?? '' }"
+                    />
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <TablePagination
+          v-if="selected && (configuration?.editable || configLoading)"
+          v-model:page="page"
+          v-model:page-size="pageSize"
+          :total="filteredRules.length"
+          label="routes"
+          :loading="configLoading"
+          :error="!!configError"
+          class="mt-auto border-t border-default"
+        />
+        <p
+          v-if="zonesError && !error"
+          class="border-t border-default px-5 py-3 text-xs text-error"
+          role="alert"
+        >
+          Domain access could not be loaded.
         </p>
-      </template>
-    </UCard>
-    <p
-      v-if="zonesError && !error"
-      class="mt-3 text-xs text-error"
-      role="alert"
-    >
-      Domain access could not be loaded.
-    </p>
+      </section>
+    </div>
     <UModal
       v-model:open="modal"
       :title="editing ? 'Edit tunnel route' : 'Publish a service'"
@@ -298,38 +299,26 @@ function canManage(hostname?: string) {
         />
       </template>
     </UModal>
-    <UModal
+    <ConfirmationModal
       :open="!!deleting"
       title="Remove public route?"
       description="Traffic to this service will stop. DNS created by this console will be removed when no other rule uses it."
-      @update:open="value => { if (!value && !busy) deleting = undefined }"
+      confirm-label="Remove route"
+      :busy="busy"
+      :disabled="deleting?.version !== configuration?.version"
+      @update:open="value => { if (!value) deleting = undefined }"
+      @confirm="remove"
     >
-      <template #body>
-        <UAlert
-          v-if="deleting?.version !== configuration?.version"
-          class="mb-4"
-          color="warning"
-          title="Configuration changed"
-          description="Close this dialog and reopen the route before deleting."
-        />
-        <p class="text-sm">
-          Remove <strong>{{ deleting?.rule.hostname }}</strong>? Pre-existing DNS records are preserved.
-        </p><div class="mt-4 flex justify-end gap-2">
-          <UButton
-            label="Cancel"
-            color="neutral"
-            variant="outline"
-            :disabled="busy"
-            @click="deleting = undefined"
-          /><UButton
-            label="Remove route"
-            :disabled="deleting?.version !== configuration?.version"
-            color="error"
-            :loading="busy"
-            @click="remove"
-          />
-        </div>
-      </template>
-    </UModal>
+      <UAlert
+        v-if="deleting?.version !== configuration?.version"
+        class="mb-4"
+        color="warning"
+        title="Configuration changed"
+        description="Close this dialog and reopen the route before deleting."
+      />
+      <p class="text-sm">
+        Remove <strong>{{ deleting?.rule.hostname }}</strong>? Pre-existing DNS records are preserved.
+      </p>
+    </ConfirmationModal>
   </div>
 </template>

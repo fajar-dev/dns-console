@@ -1,8 +1,8 @@
 import * as z from 'zod'
+import type { DeleteRouteInput, DnsRecordInput, RouteInput } from '../types/cloudflare'
 
 export const resourceId = z.string().regex(/^[a-f0-9]{32}$/, 'Invalid Cloudflare ID')
 export const tunnelId = z.uuid()
-export const dnsTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'CAA', 'SRV', 'PTR'] as const
 export const editableDnsTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'PTR'] as const
 const hostname = z.string().trim().toLowerCase().max(253).regex(/^(?:\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/, 'Enter a full hostname, such as app.example.com')
 
@@ -20,7 +20,7 @@ export const dnsRecordSchema = z.object({
   if (['CNAME', 'MX', 'NS', 'PTR'].includes(record.type) && !hostname.safeParse(record.content.replace(/\.$/, '')).success) ctx.addIssue({ code: 'custom', path: ['content'], message: 'Enter a valid target hostname' })
   if (record.proxied && !['A', 'AAAA', 'CNAME'].includes(record.type)) ctx.addIssue({ code: 'custom', path: ['proxied'], message: 'Only A, AAAA and CNAME support proxying' })
   if (record.type === 'MX' && record.priority === undefined) ctx.addIssue({ code: 'custom', path: ['priority'], message: 'MX priority is required' })
-})
+}) satisfies z.ZodType<DnsRecordInput>
 
 export const routeSchema = z.object({
   zoneId: resourceId,
@@ -33,13 +33,10 @@ export const routeSchema = z.object({
   }, 'Enter a service URL, such as http://localhost:3000'),
   version: z.string().regex(/^[a-f0-9]{64}$/),
   index: z.number().int().min(0).optional()
-})
+}) satisfies z.ZodType<RouteInput>
 
 export const deleteRouteSchema = z.object({
   zoneId: resourceId,
   version: z.string().regex(/^[a-f0-9]{64}$/),
   index: z.number().int().min(0)
-})
-
-export type DnsRecordInput = z.infer<typeof dnsRecordSchema>
-export type RouteInput = z.infer<typeof routeSchema>
+}) satisfies z.ZodType<DeleteRouteInput>

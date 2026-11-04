@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS console_logs (
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   action VARCHAR(64) NOT NULL,
   resource VARCHAR(253) NOT NULL,
+  actor_email VARCHAR(254) NULL,
   outcome ENUM('success', 'failure') NOT NULL,
   detail VARCHAR(1024) NOT NULL,
   PRIMARY KEY (id),

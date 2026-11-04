@@ -1,7 +1,7 @@
 import { exportJWK, generateKeyPair, SignJWT } from 'jose'
 import type { CustomFetch } from 'openid-client'
 import type { AuthTransaction, EntraConfig } from '../../server/domain/auth'
-import { MicrosoftIdentityProvider } from '../../server/infrastructure/microsoft-identity-provider'
+import { MicrosoftIdentityProvider } from '../../server/infrastructure/auth/microsoft-identity-provider'
 
 export const entra: EntraConfig = {
   tenantId: '11111111-1111-4111-8111-111111111111',
