@@ -11,14 +11,24 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/main.css'],
 
-  routeRules: {
-    '/': { prerender: true }
+  colorMode: {
+    preference: 'dark',
+    fallback: 'dark'
+  },
+
+  runtimeConfig: {
+    cloudflareApiToken: '',
+    cloudflareAccountId: '',
+    adminPassword: '',
+    sessionPassword: '',
+    auditDatabasePath: './.data/audit.sqlite'
   },
 
   compatibilityDate: '2026-06-30',
 
   nitro: {
-    preset: 'bun'
+    preset: 'bun',
+    externals: { external: ['bun:sqlite'] }
   },
 
   eslint: {
