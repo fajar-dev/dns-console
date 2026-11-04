@@ -2,7 +2,7 @@
 
 An internal application for Asset Monitoring Teknologi Indonesia to manage Cloudflare DNS records and Tunnel public hostname routes in one place. User access is managed through Microsoft Entra ID.
 
-Built with Nuxt, Nuxt UI, Bun, and MySQL.
+Built with Nuxt, Nuxt UI, Bun, and SQLite.
 
 ## Features
 
@@ -31,13 +31,46 @@ Logs cover changes made through DNS Console. Changes made directly in the Cloudf
 ## Requirements
 
 - Bun 1.4.2 or newer.
-- MySQL 8.0 or newer with a dedicated application database.
 - A Cloudflare account with the domains and tunnels you want to manage.
 - Remotely managed tunnels for editing routes.
 - A running `cloudflared` connector that can reach the origin services.
 - A Microsoft Entra ID app registration for a single organization tenant.
 
-## Getting started
+## Docker
+
+Docker Engine with the Compose plugin is sufficient to run the application. Bun and SQLite are included in the image.
+
+```bash
+cp .env.docker.example .env.docker
+```
+
+Fill in the Cloudflare and Microsoft settings described below, including a random `NUXT_AUTH_SECRET` of at least 32 characters. Then start the application:
+
+```bash
+docker compose --env-file .env.docker up -d --build --wait
+```
+
+Open [http://localhost:3000](http://localhost:3000). Change `APP_PORT` if that port is already in use, and update `NUXT_APP_URL` and the Entra redirect URIs to match.
+
+The production Bun container runs as a non-root user with a read-only filesystem. The `sqlite_data` volume provides writable storage at `/app/.data` for the database and its WAL files. The schema is initialized automatically when the database is first opened. The `/health` endpoint checks database readiness. Secrets are supplied at runtime and excluded from the build context and image.
+
+```bash
+# Status and application logs
+docker compose --env-file .env.docker ps
+docker compose --env-file .env.docker logs -f app
+
+# Rebuild after pulling application updates
+docker compose --env-file .env.docker up -d --build --wait
+
+# Stop the application while keeping its database
+docker compose --env-file .env.docker down
+```
+
+Keep the named volume when recreating containers. `down --volumes` permanently removes its data. For a consistent offline backup, stop the application before backing up the entire data volume; restore it while the application is stopped.
+
+The application binds to `127.0.0.1` by default. For a deployed domain, configure an HTTPS reverse proxy, set `NUXT_APP_URL` to its public HTTPS origin, and register the matching Entra redirect URIs. `APP_BIND_ADDRESS` controls the host binding if a different network setup is required.
+
+## Local development
 
 ```bash
 bun install --frozen-lockfile
@@ -56,7 +89,7 @@ Set the following values in `.env`:
 | `NUXT_ENTRA_CLIENT_SECRET` | Client secret **Value**, not Secret ID. |
 | `NUXT_ENTRA_APP_ROLE` | Required sign-in role; defaults to `DNSConsole.Access`. |
 | `NUXT_AUTH_SECRET` | Random secret of at least 32 characters for application sessions. |
-| `NUXT_MYSQL_URL` | MySQL database connection URL. |
+| `NUXT_SQLITE_PATH` | Optional database file path; defaults to `.data/dns-console.sqlite`. The containing directory must be writable. |
 
 Generate a session secret with:
 
@@ -72,6 +105,8 @@ bun run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000). Restart the application after changing environment variables.
+
+The SQLite schema is initialized automatically on first database access. `bun run db:migrate` can also initialize or verify it before starting. Logs are stored in the configured database file; keep its directory across deployments. SQLite uses WAL mode and transactional migrations, with checksums to detect changes to applied migrations.
 
 ### Cloudflare
 
@@ -118,4 +153,4 @@ DNS changes and tunnel configuration updates are separate operations. If a faile
 bun run check
 ```
 
-Runs lint, type checking, tests, and the production build. To include database tests, set `TEST_MYSQL_URL` to a dedicated test database whose name ends in `_test`.
+Runs lint, type checking, unit and SQLite integration tests, the production build, and end-to-end checks. Tests use isolated temporary databases and do not touch application data.

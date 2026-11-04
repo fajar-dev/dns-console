@@ -22,3 +22,13 @@ node_modules
 .env
 .env.*
 !.env.example
+!.env.docker.example
+
+# Container migration bundle
+docker-build/
+
+# SQLite database and sidecar files
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*

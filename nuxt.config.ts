@@ -7,6 +7,12 @@ export default defineNuxtConfig({
     '@nuxt/ui'
   ],
 
+  $production: {
+    nitro: {
+      entry: fileURLToPath(new URL('./server/runtime/bun.ts', import.meta.url))
+    }
+  },
+
   components: [{ path: '~/components', pathPrefix: false }],
 
   devtools: {
@@ -29,14 +35,13 @@ export default defineNuxtConfig({
     entraClientId: '',
     entraClientSecret: '',
     entraAppRole: 'DNSConsole.Access',
-    mysqlUrl: ''
+    sqlitePath: '.data/dns-console.sqlite'
   },
 
   compatibilityDate: '2026-06-30',
 
   nitro: {
-    preset: 'bun',
-    entry: fileURLToPath(new URL('./server/runtime/bun.ts', import.meta.url))
+    preset: 'bun'
   },
 
   eslint: {

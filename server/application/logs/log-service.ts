@@ -10,7 +10,7 @@ export class LogService implements LogWriter {
     try {
       await this.repository.ready()
     } catch {
-      throw new ApplicationError(503, 'Logs database is unavailable. Check NUXT_MYSQL_URL and run bun run db:migrate.')
+      throw new ApplicationError(503, 'Logs database is unavailable. Check NUXT_SQLITE_PATH and directory write permissions.')
     }
   }
 
@@ -19,7 +19,7 @@ export class LogService implements LogWriter {
       await this.repository.append(entry)
     } catch {
       // An already committed Cloudflare change must not appear to have failed.
-      // Emit metadata to stderr for recovery without leaking connection secrets.
+      // Emit metadata to stderr for recovery without exposing underlying database errors.
       console.error('Failed to persist console log:', JSON.stringify(entry))
     }
   }
@@ -28,7 +28,7 @@ export class LogService implements LogWriter {
     try {
       return await this.repository.list(query)
     } catch {
-      throw new ApplicationError(503, 'Logs could not be loaded. Check the MySQL connection and database migrations.')
+      throw new ApplicationError(503, 'Logs could not be loaded. Check the SQLite file and directory write permissions.')
     }
   }
 }

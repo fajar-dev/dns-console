@@ -1,0 +1,24 @@
+.git
+.github
+node_modules
+.nuxt
+.output
+.nitro
+.data
+.cache
+dist
+docker-build
+coverage
+tests
+.env
+.env.*
+*.log
+**/.DS_Store
+.idea
+.fleet
+
+# SQLite database and sidecar files
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*

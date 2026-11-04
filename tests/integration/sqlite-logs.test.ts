@@ -1,32 +1,30 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { createLogPool } from '../../server/infrastructure/mysql/mysql-pool'
-import { MysqlLogRepository } from '../../server/infrastructure/mysql/mysql-log-repository'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { openLogDatabase } from '../../server/infrastructure/sqlite/database'
+import { migrateDatabase } from '../../server/infrastructure/sqlite/migrations'
+import { SqliteLogRepository } from '../../server/infrastructure/sqlite/sqlite-log-repository'
 import { logQuerySchema } from '../../shared/validation/logs'
 
-const url = process.env.TEST_MYSQL_URL
-describe.skipIf(!url)('MySQL logs integration', () => {
-  if (!url) return
-  if (!new URL(url).pathname.endsWith('_test')) throw new Error('Integration tests require a dedicated database ending in _test.')
-  const pool = createLogPool(url)
-  const repository = new MysqlLogRepository(pool)
+describe('SQLite logs integration', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dns-sqlite-test-'))
+  const filename = join(directory, 'logs.sqlite')
+  const database = openLogDatabase(filename)
+  const repository = new SqliteLogRepository(database)
 
   beforeAll(async () => {
-    for (let i = 0; i < 2; i++) {
-      const migration = Bun.spawn([process.execPath, 'run', 'db:migrate'], { env: { ...process.env, NUXT_MYSQL_URL: url }, stdout: 'pipe', stderr: 'pipe' })
-      const exit = await migration.exited
-      if (exit) throw new Error(await new Response(migration.stderr).text())
-      expect(exit).toBe(0)
-    }
+    migrateDatabase(database)
     await repository.ready()
-    await pool.query('DELETE FROM console_logs')
     for (let i = 0; i < 31; i++) {
       await repository.append({ actorEmail: i === 0 ? null : `actor${i}@example.net`, action: i % 2 ? 'route.create' : 'dns.create', resource: `app${i}.example.com`, outcome: i % 3 ? 'success' : 'failure', detail: i === 0 ? 'literal 50%_! match' : 'Saved through console' })
     }
     // Force timestamp ties to exercise deterministic ordering by ID.
-    await pool.query('UPDATE console_logs SET created_at = \'2026-11-04 01:02:03.456\'')
+    database.exec('UPDATE console_logs SET created_at = \'2026-11-04T01:02:03.456Z\'')
   }, 30000)
   afterAll(async () => {
-    await pool.end()
+    database.close()
+    rmSync(directory, { recursive: true, force: true })
   })
 
   test('persists records with UTC timestamps and stable pagination without overlaps', async () => {
@@ -68,5 +66,18 @@ describe.skipIf(!url)('MySQL logs integration', () => {
     expect(page.total).toBe(1)
     expect(page.entries[0]?.resource).toBe('app30.example.com')
     expect(page.entries[0]?.actorEmail).toBe('actor30@example.net')
+  })
+
+  test('retains logs across independent connections and repeated migrations', async () => {
+    const reopened = openLogDatabase(filename)
+    try {
+      migrateDatabase(reopened)
+      const page = await new SqliteLogRepository(reopened).list(logQuerySchema.parse({}))
+      expect(page.total).toBe(31)
+      expect(reopened.query('SELECT version FROM console_migrations').all()).toEqual([{ version: 1n }])
+      expect(reopened.query('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
+    } finally {
+      reopened.close()
+    }
   })
 })

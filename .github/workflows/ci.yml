@@ -14,23 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: dns-ci-only
-          MYSQL_DATABASE: dns_console_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-
-    env:
-      TEST_MYSQL_URL: mysql://root:dns-ci-only@127.0.0.1:3306/dns_console_test
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -57,3 +40,31 @@ jobs:
 
       - name: End-to-end checks
         run: bun run test:e2e
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_PORT: '4321'
+      NUXT_APP_URL: http://localhost:4321
+      NUXT_AUTH_SECRET: docker-ci-synthetic-secret-at-least-32-characters
+      NUXT_ENTRA_TENANT_ID: 11111111-1111-4111-8111-111111111111
+      NUXT_ENTRA_CLIENT_ID: 22222222-2222-4222-8222-222222222222
+      NUXT_ENTRA_CLIENT_SECRET: docker-ci-synthetic-client-secret
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build and start Docker stack
+        run: docker compose --env-file .env.docker.example --project-name dns-console-ci up -d --build --wait --wait-timeout 120
+
+      - name: Check application readiness
+        run: curl --fail --silent --show-error http://127.0.0.1:4321/health
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose --env-file .env.docker.example --project-name dns-console-ci logs --no-color
+
+      - name: Remove test stack
+        if: always()
+        run: docker compose --env-file .env.docker.example --project-name dns-console-ci down --volumes --remove-orphans

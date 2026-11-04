@@ -40,6 +40,21 @@ function post(path: string, body: string, origin = server.base) {
 }
 
 describe('Built console', () => {
+  test('reports readiness with an automatically initialized SQLite database', async () => {
+    const response = await get('/health', false)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ status: 'ok' })
+  })
+
+  test('serves paginated logs from the isolated SQLite database', async () => {
+    const response = await get('/api/logs?page=999&pageSize=10')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      entries: [], page: 1, pageSize: 10, total: 0, totalPages: 1,
+      summary: { success: 0, failure: 0 }
+    })
+  })
+
   test('denies anonymous and forged credentials on protected API and pages', async () => {
     expect((await get('/api/zones', false)).status).toBe(401)
     expect((await get('/logs', false)).headers.get('location')).toBe('/login')

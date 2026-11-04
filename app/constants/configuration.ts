@@ -7,5 +7,5 @@ export const environment = [
   { name: 'NUXT_ENTRA_CLIENT_SECRET', description: 'Client secret value from the Entra app registration; kept on the server.' },
   { name: 'NUXT_ENTRA_APP_ROLE', description: 'Required Entra app role. Defaults to DNSConsole.Access; assign users or groups in Entra.' },
   { name: 'NUXT_AUTH_SECRET', description: 'Random secret of at least 32 characters for encrypting session cookies.' },
-  { name: 'NUXT_MYSQL_URL', description: 'MySQL connection URL for persistent logs. Run bun run db:migrate before starting.' }
+  { name: 'NUXT_SQLITE_PATH', description: 'SQLite file for persistent logs. Defaults to .data/dns-console.sqlite; schema is initialized automatically.' }
 ]

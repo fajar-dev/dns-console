@@ -22,8 +22,8 @@ describe('Log failures', () => {
   const service = new LogService(repository)
 
   test('returns actionable database errors without credentials', async () => {
-    await expect(service.ready()).rejects.toThrow('run bun run db:migrate')
-    await expect(service.list(logQuerySchema.parse({}))).rejects.toThrow('Check the MySQL connection')
+    await expect(service.ready()).rejects.toThrow('directory write permissions')
+    await expect(service.list(logQuerySchema.parse({}))).rejects.toThrow('Check the SQLite file')
   })
 
   test('does not report a committed Cloudflare operation as failed if logging fails', async () => {
