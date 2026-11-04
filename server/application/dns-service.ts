@@ -10,7 +10,7 @@ export class DnsService {
     return this.gateway.listRecords(zoneId)
   }
 
-  async save(zoneId: string, input: DnsRecordInput, id?: string) {
+  async save(zoneId: string, input: DnsRecordInput, actorEmail: string | null, id?: string) {
     await this.logs.ready()
     const zone = await this.gateway.getZone(zoneId)
     if (input.name !== zone.name && !input.name.endsWith(`.${zone.name}`)) throw new ApplicationError(400, 'Record hostname must belong to the selected zone.')
@@ -19,14 +19,14 @@ export class DnsService {
     try {
       result = id ? await this.gateway.updateRecord(zoneId, id, payload) : await this.gateway.createRecord(zoneId, payload)
     } catch (error) {
-      await this.logs.record({ action: id ? 'dns.update' : 'dns.create', resource: input.name, outcome: 'failure', detail: `${input.type} write request failed; inspect DNS before retrying` })
+      await this.logs.record({ actorEmail, action: id ? 'dns.update' : 'dns.create', resource: input.name, outcome: 'failure', detail: `${input.type} write request failed; inspect DNS before retrying` })
       throw error
     }
-    await this.logs.record({ action: id ? 'dns.update' : 'dns.create', resource: input.name, outcome: 'success', detail: `${input.type} record saved` })
+    await this.logs.record({ actorEmail, action: id ? 'dns.update' : 'dns.create', resource: input.name, outcome: 'success', detail: `${input.type} record saved` })
     return result
   }
 
-  async remove(zoneId: string, id: string) {
+  async remove(zoneId: string, id: string, actorEmail: string | null) {
     await this.logs.ready()
     await this.gateway.getZone(zoneId)
     const record = (await this.gateway.listRecords(zoneId)).find(item => item.id === id)
@@ -34,9 +34,9 @@ export class DnsService {
     try {
       await this.gateway.deleteRecord(zoneId, id)
     } catch (error) {
-      await this.logs.record({ action: 'dns.delete', resource: record.name, outcome: 'failure', detail: `${record.type} delete request failed; inspect DNS before retrying` })
+      await this.logs.record({ actorEmail, action: 'dns.delete', resource: record.name, outcome: 'failure', detail: `${record.type} delete request failed; inspect DNS before retrying` })
       throw error
     }
-    await this.logs.record({ action: 'dns.delete', resource: record.name, outcome: 'success', detail: `${record.type} record deleted` })
+    await this.logs.record({ actorEmail, action: 'dns.delete', resource: record.name, outcome: 'success', detail: `${record.type} record deleted` })
   }
 }

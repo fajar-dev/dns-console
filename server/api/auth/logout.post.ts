@@ -1,5 +1,7 @@
-export default apiHandler(async (event) => {
-  await (await adminSession(event)).clear()
-  deleteCookie(event, 'dns-console', { path: '/', httpOnly: true, sameSite: 'strict', secure: !import.meta.dev })
-  return { success: true }
+export default apiHandler((event) => {
+  if (!authConfigured()) return { redirectTo: '/login' }
+  const auth = microsoftAuth()
+  auth.identity.clear(event)
+  auth.transaction.clear(event)
+  return { redirectTo: auth.service.logoutUrl() }
 })

@@ -20,7 +20,7 @@ describe.skipIf(!url)('MySQL logs integration', () => {
     await repository.ready()
     await pool.query('DELETE FROM console_logs')
     for (let i = 0; i < 31; i++) {
-      await repository.append({ action: i % 2 ? 'route.create' : 'dns.create', resource: `app${i}.example.com`, outcome: i % 3 ? 'success' : 'failure', detail: i === 0 ? 'literal 50%_! match' : 'Saved through console' })
+      await repository.append({ actorEmail: i === 0 ? null : `actor${i}@example.net`, action: i % 2 ? 'route.create' : 'dns.create', resource: `app${i}.example.com`, outcome: i % 3 ? 'success' : 'failure', detail: i === 0 ? 'literal 50%_! match' : 'Saved through console' })
     }
     // Force timestamp ties to exercise deterministic ordering by ID.
     await pool.query('UPDATE console_logs SET created_at = \'2026-11-04 01:02:03.456\'')
@@ -37,11 +37,13 @@ describe.skipIf(!url)('MySQL logs integration', () => {
     expect(first.summary).toEqual({ success: 20, failure: 11 })
     expect(first.entries).toHaveLength(10)
     expect(first.entries[0]?.resource).toBe('app30.example.com')
+    expect(first.entries[0]?.actorEmail).toBe('actor30@example.net')
     expect(first.entries[0]?.timestamp).toBe('2026-11-04T01:02:03.456Z')
     expect(first.entries.some(entry => second.entries.some(other => entry.id === other.id))).toBe(false)
     const last = await repository.list(logQuerySchema.parse({ page: 999, pageSize: 10 }))
     expect(last.page).toBe(4)
     expect(last.entries).toHaveLength(1)
+    expect(last.entries[0]?.actorEmail).toBeNull()
   })
 
   test('combines category, status and search filters on the server', async () => {
@@ -59,5 +61,12 @@ describe.skipIf(!url)('MySQL logs integration', () => {
     expect(empty.page).toBe(1)
     expect(empty.summary).toEqual({ success: 0, failure: 0 })
     expect((await repository.list(logQuerySchema.parse({}))).total).toBe(31)
+  })
+
+  test('searches by actor email without changing pagination or totals', async () => {
+    const page = await repository.list(logQuerySchema.parse({ search: 'actor30@example.net' }))
+    expect(page.total).toBe(1)
+    expect(page.entries[0]?.resource).toBe('app30.example.com')
+    expect(page.entries[0]?.actorEmail).toBe('actor30@example.net')
   })
 })

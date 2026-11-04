@@ -48,7 +48,7 @@ export class TunnelService {
     if (hostname !== zone.name && !hostname.endsWith(`.${zone.name}`)) throw new ApplicationError(400, 'Hostname must belong to the selected zone.')
   }
 
-  save(id: string, input: RouteInput) {
+  save(id: string, input: RouteInput, actorEmail: string | null) {
     return this.exclusive(id, async () => {
       await this.logs.ready()
       await this.assertHostname(input.zoneId, input.hostname)
@@ -72,7 +72,7 @@ export class TunnelService {
         try {
           createdId = (await this.gateway.createRecord(input.zoneId, { type: 'CNAME', name: input.hostname, content: target, proxied: true, ttl: 1, comment: `Managed by DNS Console | tunnel:${id}` })).id
         } catch (error) {
-          await this.logs.record({ action: 'route.save', resource: input.hostname, outcome: 'failure', detail: 'DNS write request failed; ingress was not changed' })
+          await this.logs.record({ actorEmail, action: 'route.save', resource: input.hostname, outcome: 'failure', detail: 'DNS write request failed; ingress was not changed' })
           throw error
         }
       }
@@ -87,28 +87,28 @@ export class TunnelService {
           observed = (await this.gateway.getConfiguration(id)).config
         } catch { /* Outcome remains unknown. */ }
         if (observed && configurationVersion(observed) === configurationVersion(nextConfig)) {
-          await this.logs.record({ action: 'route.save', resource: input.hostname, outcome: 'success', detail: 'Configuration confirmed after an ambiguous API response' })
+          await this.logs.record({ actorEmail, action: 'route.save', resource: input.hostname, outcome: 'success', detail: 'Configuration confirmed after an ambiguous API response' })
           return
         }
         if (createdId && observed && configurationVersion(observed) === input.version) {
           try {
             await this.gateway.deleteRecord(input.zoneId, createdId)
           } catch {
-            await this.logs.record({ action: 'route.save', resource: input.hostname, outcome: 'failure', detail: 'Ingress update failed; DNS cleanup also failed' })
+            await this.logs.record({ actorEmail, action: 'route.save', resource: input.hostname, outcome: 'failure', detail: 'Ingress update failed; DNS cleanup also failed' })
             throw new ApplicationError(502, 'Route could not be saved and DNS cleanup failed. Refresh and inspect both DNS and tunnel configuration.')
           }
         } else if (createdId) {
-          await this.logs.record({ action: 'route.save', resource: input.hostname, outcome: 'failure', detail: 'Ingress outcome uncertain; DNS retained to avoid breaking an active route' })
+          await this.logs.record({ actorEmail, action: 'route.save', resource: input.hostname, outcome: 'failure', detail: 'Ingress outcome uncertain; DNS retained to avoid breaking an active route' })
           throw new ApplicationError(502, 'Route outcome is uncertain. DNS was retained. Refresh and inspect the tunnel before retrying.')
         }
-        await this.logs.record({ action: 'route.save', resource: input.hostname, outcome: 'failure', detail: 'Ingress update request failed; inspect configuration before retrying' })
+        await this.logs.record({ actorEmail, action: 'route.save', resource: input.hostname, outcome: 'failure', detail: 'Ingress update request failed; inspect configuration before retrying' })
         throw error
       }
-      await this.logs.record({ action: input.index === undefined ? 'route.create' : 'route.update', resource: input.hostname, outcome: 'success', detail: 'Ingress and proxied CNAME synchronized' })
+      await this.logs.record({ actorEmail, action: input.index === undefined ? 'route.create' : 'route.update', resource: input.hostname, outcome: 'success', detail: 'Ingress and proxied CNAME synchronized' })
     })
   }
 
-  remove(id: string, input: { zoneId: string, version: string, index: number }) {
+  remove(id: string, input: { zoneId: string, version: string, index: number }, actorEmail: string | null) {
     return this.exclusive(id, async () => {
       await this.logs.ready()
       const current = await this.writable(id, input.version)
@@ -120,7 +120,7 @@ export class TunnelService {
       try {
         await this.gateway.putConfiguration(id, { ...current, ingress: rules })
       } catch (error) {
-        await this.logs.record({ action: 'route.delete', resource: rule.hostname, outcome: 'failure', detail: 'Ingress removal request failed; inspect configuration before retrying' })
+        await this.logs.record({ actorEmail, action: 'route.delete', resource: rule.hostname, outcome: 'failure', detail: 'Ingress removal request failed; inspect configuration before retrying' })
         throw error
       }
       if (!rules.some(item => item.hostname === rule.hostname)) {
@@ -129,11 +129,11 @@ export class TunnelService {
           const managed = records.filter(record => record.name === rule.hostname && record.type === 'CNAME' && record.content === `${id}.cfargotunnel.com` && record.comment === `Managed by DNS Console | tunnel:${id}`)
           for (const record of managed) await this.gateway.deleteRecord(input.zoneId, record.id)
         } catch {
-          await this.logs.record({ action: 'route.delete', resource: rule.hostname, outcome: 'failure', detail: 'Ingress removed; managed DNS cleanup failed' })
+          await this.logs.record({ actorEmail, action: 'route.delete', resource: rule.hostname, outcome: 'failure', detail: 'Ingress removed; managed DNS cleanup failed' })
           throw new ApplicationError(502, 'Route was removed, but DNS cleanup failed. Remove its leftover CNAME from DNS records.')
         }
       }
-      await this.logs.record({ action: 'route.delete', resource: rule.hostname, outcome: 'success', detail: 'Ingress removed; pre-existing DNS records preserved' })
+      await this.logs.record({ actorEmail, action: 'route.delete', resource: rule.hostname, outcome: 'success', detail: 'Ingress removed; pre-existing DNS records preserved' })
     })
   }
 }

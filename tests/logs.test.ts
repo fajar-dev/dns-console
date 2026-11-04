@@ -31,7 +31,7 @@ describe('Log failures', () => {
     const original = console.error
     console.error = output
     try {
-      await service.record({ action: 'dns.create', resource: 'app.example.com', outcome: 'success', detail: 'A record saved' })
+      await service.record({ actorEmail: 'actor@example.com', action: 'dns.create', resource: 'app.example.com', outcome: 'success', detail: 'A record saved' })
       expect(output).toHaveBeenCalledTimes(1)
       expect(JSON.stringify(output.mock.calls)).not.toContain('secret connection URL')
     } finally {

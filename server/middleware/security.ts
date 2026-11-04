@@ -12,7 +12,6 @@ export default defineEventHandler(async (event) => {
     const length = Number(getHeader(event, 'content-length') ?? 0)
     if (length > 16384) throw createError({ statusCode: 413, statusMessage: 'Request too large' })
   }
-  if (['/api/auth/session', '/api/auth/login'].includes(path)) return
-  const session = await adminSession(event)
-  if (!session.data.authenticated) throw createError({ statusCode: 401, statusMessage: 'Authentication required' })
+  if (['/api/auth/session', '/api/auth/logout'].includes(path)) return
+  if (!await microsoftIdentity(event)) throw createError({ statusCode: 401, statusMessage: 'Sign in with Microsoft to continue.' })
 })

@@ -86,7 +86,7 @@ function actionLabel(action: string) {
         <UInput
           v-model="search"
           icon="i-lucide-search"
-          placeholder="Search resource, action, or details…"
+          placeholder="Search resource, actor, or details…"
           aria-label="Search logs"
           :maxlength="200"
           class="w-full sm:max-w-sm"
@@ -114,7 +114,7 @@ function actionLabel(action: string) {
       />
       <TableSkeleton
         v-else-if="loading"
-        :columns="4"
+        :columns="5"
         :rows="pageSize > 10 ? 10 : pageSize"
         label="Loading logs"
       />
@@ -161,6 +161,12 @@ function actionLabel(action: string) {
                 scope="col"
                 class="px-5 py-3 font-medium"
               >
+                Actor
+              </th>
+              <th
+                scope="col"
+                class="px-5 py-3 font-medium"
+              >
                 Status
               </th>
               <th
@@ -199,6 +205,11 @@ function actionLabel(action: string) {
                 </p>
                 <p class="mt-1 font-mono text-[11px] text-dimmed">
                   {{ entry.action }} · #{{ entry.id }}
+                </p>
+              </td>
+              <td class="min-w-44 px-5 py-4 align-top">
+                <p class="max-w-60 text-xs leading-relaxed break-all text-toned">
+                  {{ entry.actorEmail ?? '—' }}
                 </p>
               </td>
               <td class="px-5 py-4 align-top">

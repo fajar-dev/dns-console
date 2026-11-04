@@ -1,6 +1,11 @@
-export default apiHandler(async (event) => {
-  const configured = authConfigured()
-  const session = configured ? await adminSession(event) : undefined
+import type { AuthStatus } from '#shared/types/auth'
+
+export default apiHandler(async (event): Promise<AuthStatus> => {
+  const identity = await microsoftIdentity(event)
   const config = useRuntimeConfig()
-  return { authenticated: session?.data.authenticated === true, authConfigured: configured, cloudflareConfigured: !!config.cloudflareApiToken && /^[a-f0-9]{32}$/.test(config.cloudflareAccountId) }
+  return {
+    authenticated: !!identity, authConfigured: authConfigured(),
+    cloudflareConfigured: !!config.cloudflareApiToken && /^[a-f0-9]{32}$/.test(config.cloudflareAccountId),
+    user: identity ? { tenantId: identity.tenantId, objectId: identity.objectId, name: identity.name, username: identity.username, email: identity.email } : null
+  }
 })

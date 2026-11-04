@@ -1,20 +1,21 @@
 <script setup lang="ts">
+const route = useRoute()
 const { data: session } = await useFetch('/api/auth/session')
-const password = ref('')
-const error = ref('')
 const loading = ref(false)
+const errors: Record<string, string> = {
+  denied: 'Your Microsoft account has not been assigned access. Contact your administrator.',
+  signin: 'Sign-in could not be completed. Please try again.',
+  transaction: 'Your sign-in session is missing or expired. Open the app using its configured address and sign in again.',
+  credentials: 'Microsoft rejected the application credentials. Check the client secret value and its expiry.',
+  redirect: 'The Microsoft redirect URI does not match the application configuration.',
+  verification: 'Microsoft token verification failed. Check the server authentication diagnostics.',
+  unavailable: 'Microsoft sign-in is temporarily unavailable. Please try again.'
+}
+const error = computed(() => typeof route.query.error === 'string' && Object.hasOwn(errors, route.query.error) ? errors[route.query.error] : undefined)
 async function login() {
-  error.value = ''
+  if (loading.value || !session.value?.authConfigured) return
   loading.value = true
-  try {
-    await $fetch('/api/auth/login', { method: 'POST', body: { password: password.value } })
-    password.value = ''
-    await navigateTo('/')
-  } catch (value) {
-    error.value = consoleError(value)
-  } finally {
-    loading.value = false
-  }
+  await navigateTo('/auth/microsoft', { external: true })
 }
 </script>
 
@@ -31,8 +32,9 @@ async function login() {
         <div class="mb-7 text-center">
           <h1 class="text-2xl font-medium tracking-tight text-highlighted">
             Your network, in one place.
-          </h1><p class="mt-2 text-sm text-muted">
-            Sign in to your Cloudflare workspace.
+          </h1>
+          <p class="mt-2 text-sm text-muted">
+            Sign in with your organization’s Microsoft account.
           </p>
         </div>
         <UAlert
@@ -40,39 +42,47 @@ async function login() {
           class="mb-5"
           color="warning"
           variant="soft"
-          title="Server setup required"
-          description="Set NUXT_ADMIN_PASSWORD (12+ characters) and NUXT_SESSION_PASSWORD (32+ characters) in your server environment. See .env.example."
+          title="Microsoft sign-in is not configured"
+          description="Complete the Microsoft Entra configuration on the server to enable sign-in."
         />
-        <form
-          class="space-y-5"
-          @submit.prevent="login"
+        <p
+          v-else-if="error"
+          role="alert"
+          class="mb-5 text-sm text-error"
         >
-          <UFormField
-            label="Admin password"
-            name="password"
-            :error="error || undefined"
+          {{ error }}
+        </p>
+        <UButton
+          color="neutral"
+          variant="outline"
+          block
+          size="lg"
+          :loading="loading"
+          :disabled="!session?.authConfigured"
+          @click="login"
+        >
+          <svg
+            v-if="!loading"
+            aria-hidden="true"
+            viewBox="0 0 21 21"
+            class="size-4 shrink-0"
           >
-            <UInput
-              v-model="password"
-              type="password"
-              autocomplete="current-password"
-              placeholder="Enter your password"
-              size="lg"
-              class="w-full"
-              required
-              :disabled="!session?.authConfigured"
+            <path
+              fill="#f25022"
+              d="M0 0h10v10H0z"
+            /><path
+              fill="#7fba00"
+              d="M11 0h10v10H11z"
+            /><path
+              fill="#00a4ef"
+              d="M0 11h10v10H0z"
+            /><path
+              fill="#ffb900"
+              d="M11 11h10v10H11z"
             />
-          </UFormField>
-          <UButton
-            type="submit"
-            label="Sign in to workspace"
-            trailing-icon="i-lucide-arrow-right"
-            block
-            size="lg"
-            :loading="loading"
-            :disabled="!session?.authConfigured"
-          />
-        </form>
+          </svg>
+          Continue with Microsoft
+        </UButton>
       </UCard>
     </div>
   </main>

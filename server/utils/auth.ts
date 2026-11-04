@@ -1,21 +1,51 @@
-import { createHash, timingSafeEqual } from 'node:crypto'
 import type { H3Event } from 'h3'
+import type { AuthTransaction, EntraConfig, MicrosoftIdentity } from '../domain/auth'
+import { AUTH_SESSION_SECONDS, AUTH_TRANSACTION_SECONDS } from '../domain/auth'
+import { MicrosoftAuthService, validEntraConfig } from '../application/microsoft-auth-service'
+import { MicrosoftIdentityProvider } from '../infrastructure/microsoft-identity-provider'
+import { AuthCookieStore } from '../infrastructure/auth-cookie-store'
+import { actorEmail } from '../application/actor-email'
+
+let container: ReturnType<typeof createAuth> | undefined
+
+export function entraConfig(): EntraConfig {
+  const config = useRuntimeConfig()
+  return {
+    tenantId: config.entraTenantId.toLowerCase(), clientId: config.entraClientId.toLowerCase(),
+    clientSecret: config.entraClientSecret, appRole: config.entraAppRole,
+    appUrl: config.appUrl.replace(/\/+$/, ''), authSecret: config.authSecret
+  }
+}
 
 export function authConfigured() {
-  const config = useRuntimeConfig()
-  return config.adminPassword.length >= 12 && config.sessionPassword.length >= 32
+  return validEntraConfig(entraConfig())
 }
 
-export function secureEqual(left: string, right: string) {
-  return timingSafeEqual(createHash('sha256').update(left).digest(), createHash('sha256').update(right).digest())
+function createAuth() {
+  const config = entraConfig()
+  if (!validEntraConfig(config)) throw createError({ statusCode: 503, statusMessage: 'Configure Microsoft Entra ID on the server. See .env.example.' })
+  const binding = `${config.tenantId}:${config.clientId}`
+  return {
+    service: new MicrosoftAuthService(config, new MicrosoftIdentityProvider(config)),
+    identity: new AuthCookieStore<MicrosoftIdentity>(config.authSecret, 'identity', AUTH_SESSION_SECONDS, !import.meta.dev, binding),
+    transaction: new AuthCookieStore<AuthTransaction>(config.authSecret, 'transaction', AUTH_TRANSACTION_SECONDS, !import.meta.dev, binding)
+  }
 }
 
-export async function adminSession(event: H3Event) {
-  if (!authConfigured()) throw createError({ statusCode: 503, statusMessage: 'Set an admin password (12+ characters) and session password (32+ characters) on the server.' })
-  return useSession<{ authenticated: boolean }>(event, {
-    name: 'dns-console',
-    password: useRuntimeConfig().sessionPassword,
-    maxAge: 60 * 60 * 8,
-    cookie: { httpOnly: true, sameSite: 'strict', secure: !import.meta.dev, path: '/' }
-  })
+export function microsoftAuth() {
+  container ??= createAuth()
+  return container
+}
+
+export async function microsoftIdentity(event: H3Event) {
+  if (!authConfigured()) return null
+  const auth = microsoftAuth()
+  const identity = await auth.identity.read(event)
+  return auth.service.authorized(identity) ? identity : null
+}
+
+export async function authenticatedActorEmail(event: H3Event) {
+  const identity = await microsoftIdentity(event)
+  if (!identity) throw createError({ statusCode: 401, statusMessage: 'Sign in with Microsoft to continue.' })
+  return actorEmail(identity)
 }

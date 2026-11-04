@@ -13,7 +13,10 @@ watch(() => route.path, () => {
 useHead({ htmlAttrs: { lang: 'en' }, title: 'DNS Console', meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
 const { busy, mutate } = useConsole()
 async function logout() {
-  if (await mutate(() => $fetch('/api/auth/logout', { method: 'POST', body: {} }), 'Signed out')) await navigateTo('/login')
+  await mutate(async () => {
+    const { redirectTo } = await $fetch('/api/auth/logout', { method: 'POST', body: {} })
+    await navigateTo(redirectTo, { external: true })
+  }, 'Signed out')
 }
 </script>
 

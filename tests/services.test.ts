@@ -8,6 +8,7 @@ import { TunnelService, configurationVersion } from '../server/application/tunne
 import { MemoryLogWriter } from './support/memory-log-writer'
 import { CloudflareHttpGateway } from '../server/infrastructure/cloudflare-gateway'
 
+const actorEmail = 'operator@example.com'
 const zoneId = 'a'.repeat(32)
 const tunnelId = '12345678-1234-4234-8234-123456789abc'
 class FakeGateway implements CloudflareGateway {
@@ -60,37 +61,38 @@ function setup() {
 describe('Tunnel publishing', () => {
   test('creates DNS and preserves catch-all, origin settings and private routing', async () => {
     const { gateway, logs, service, input } = setup()
-    await service.save(tunnelId, input())
+    await service.save(tunnelId, input(), actorEmail)
     expect(gateway.records[0]?.content).toBe(`${tunnelId}.cfargotunnel.com`)
     expect(gateway.records[0]?.proxied).toBe(true)
     expect(gateway.config.ingress?.at(-1)?.service).toBe('http_status:404')
     expect(gateway.config.originRequest).toEqual({ connectTimeout: 15 })
     expect(gateway.config['warp-routing']).toEqual({ enabled: true })
     expect(logs.entries[0]?.action).toBe('route.create')
+    expect(logs.entries[0]?.actorEmail).toBe(actorEmail)
   })
   test('rejects stale revisions before changing DNS', async () => {
     const { gateway, service, input } = setup()
     const body = input()
     gateway.config.ingress?.unshift({ hostname: 'other.example.com', service: 'http://localhost:80' })
-    await expect(service.save(tunnelId, body)).rejects.toThrow('configuration has changed')
+    await expect(service.save(tunnelId, body, actorEmail)).rejects.toThrow('configuration has changed')
     expect(gateway.records).toHaveLength(0)
   })
   test('rejects DNS conflict without changing ingress', async () => {
     const { gateway, service, input } = setup()
     gateway.records.push({ id: 'b'.repeat(32), name: 'app.example.com', type: 'A', content: '192.0.2.1', ttl: 1, proxied: false })
-    await expect(service.save(tunnelId, input())).rejects.toThrow('conflicting DNS')
+    await expect(service.save(tunnelId, input(), actorEmail)).rejects.toThrow('conflicting DNS')
     expect(gateway.writes).toBe(0)
   })
   test('removes only newly created DNS after a confirmed failed configuration update', async () => {
     const { gateway, service, input } = setup()
     gateway.failWrite = true
-    await expect(service.save(tunnelId, input())).rejects.toThrow('Cloudflare unavailable')
+    await expect(service.save(tunnelId, input(), actorEmail)).rejects.toThrow('Cloudflare unavailable')
     expect(gateway.records).toHaveLength(0)
   })
   test('confirms a committed configuration after an ambiguous timeout', async () => {
     const { gateway, service, input } = setup()
     gateway.ambiguousWrite = true
-    await service.save(tunnelId, input())
+    await service.save(tunnelId, input(), actorEmail)
     expect(gateway.records).toHaveLength(1)
     expect(gateway.config.ingress?.[0]?.hostname).toBe('app.example.com')
   })
@@ -98,36 +100,36 @@ describe('Tunnel publishing', () => {
     const { gateway, service, input, logs } = setup()
     gateway.failWrite = true
     gateway.failDelete = true
-    await expect(service.save(tunnelId, input())).rejects.toThrow('DNS cleanup failed')
+    await expect(service.save(tunnelId, input(), actorEmail)).rejects.toThrow('DNS cleanup failed')
     expect(logs.entries[0]?.outcome).toBe('failure')
   })
   test('preserves pre-existing matching DNS when deleting a route', async () => {
     const { gateway, service, input } = setup()
     gateway.records.push({ id: 'b'.repeat(32), name: 'app.example.com', type: 'CNAME', content: `${tunnelId}.cfargotunnel.com`, ttl: 1, proxied: true })
-    await service.save(tunnelId, input())
-    await service.remove(tunnelId, { zoneId, index: 0, version: configurationVersion(gateway.config) })
+    await service.save(tunnelId, input(), actorEmail)
+    await service.remove(tunnelId, { zoneId, index: 0, version: configurationVersion(gateway.config) }, actorEmail)
     expect(gateway.records).toHaveLength(1)
     expect(gateway.config.ingress).toEqual([{ service: 'http_status:404' }])
   })
   test('deletes DNS owned by this application when the last hostname rule is removed', async () => {
     const { gateway, service, input } = setup()
-    await service.save(tunnelId, input())
-    await service.remove(tunnelId, { zoneId, index: 0, version: configurationVersion(gateway.config) })
+    await service.save(tunnelId, input(), actorEmail)
+    await service.remove(tunnelId, { zoneId, index: 0, version: configurationVersion(gateway.config) }, actorEmail)
     expect(gateway.records).toHaveLength(0)
   })
   test('editing preserves an existing path and origin settings', async () => {
     const { gateway, service, input } = setup()
     gateway.config.ingress?.unshift({ hostname: 'app.example.com', path: '/api/.*', service: 'http://localhost:80', originRequest: { httpHostHeader: 'internal.example.com' } })
-    await service.save(tunnelId, { ...input(), index: 0 })
+    await service.save(tunnelId, { ...input(), index: 0 }, actorEmail)
     expect(gateway.config.ingress?.[0]?.path).toBe('/api/.*')
     expect(gateway.config.ingress?.[0]?.originRequest).toEqual({ httpHostHeader: 'internal.example.com' })
     expect(gateway.config.ingress?.[0]?.service).toBe('http://localhost:3000')
   })
   test('reports DNS cleanup failure after route removal without restoring ingress', async () => {
     const { gateway, service, input, logs } = setup()
-    await service.save(tunnelId, input())
+    await service.save(tunnelId, input(), actorEmail)
     gateway.failDelete = true
-    await expect(service.remove(tunnelId, { zoneId, index: 0, version: configurationVersion(gateway.config) })).rejects.toThrow('Route was removed')
+    await expect(service.remove(tunnelId, { zoneId, index: 0, version: configurationVersion(gateway.config) }, actorEmail)).rejects.toThrow('Route was removed')
     expect(gateway.config.ingress).toEqual([{ service: 'http_status:404' }])
     expect(gateway.records).toHaveLength(1)
     expect(logs.entries[0]?.outcome).toBe('failure')
@@ -135,34 +137,54 @@ describe('Tunnel publishing', () => {
   test('serializes concurrent changes and rejects the stale writer', async () => {
     const { gateway, service, input } = setup()
     const body = input()
-    const results = await Promise.allSettled([service.save(tunnelId, body), service.save(tunnelId, { ...body, hostname: 'second.example.com' })])
+    const results = await Promise.allSettled([service.save(tunnelId, body, actorEmail), service.save(tunnelId, { ...body, hostname: 'second.example.com' }, actorEmail)])
     expect(results.map(result => result.status)).toEqual(['fulfilled', 'rejected'])
     expect(gateway.records).toHaveLength(1)
   })
   test('cannot delete the catch-all', async () => {
     const { service, input } = setup()
-    await expect(service.remove(tunnelId, { zoneId, version: input().version, index: 0 })).rejects.toThrow('catch-all')
+    await expect(service.remove(tunnelId, { zoneId, version: input().version, index: 0 }, actorEmail)).rejects.toThrow('catch-all')
   })
 })
 
 describe('DNS validation and service', () => {
+  test('ignores actor email supplied in a mutation payload', async () => {
+    const { gateway, logs } = setup()
+    const service = new DnsService(gateway, logs)
+    const input = dnsRecordSchema.parse({ type: 'A', name: 'app.example.com', content: '192.0.2.1', ttl: 1, proxied: false, actorEmail: 'impersonated@example.com' })
+    await service.save(zoneId, input, actorEmail)
+    expect(logs.entries[0]?.actorEmail).toBe(actorEmail)
+    expect(gateway.records[0]).not.toHaveProperty('actorEmail')
+  })
+  test('keeps actor attribution separate for concurrent requests', async () => {
+    const { gateway, logs } = setup()
+    const service = new DnsService(gateway, logs)
+    const record = { type: 'A' as const, content: '192.0.2.1', ttl: 1, proxied: false, comment: '' }
+    await Promise.all([
+      service.save(zoneId, { ...record, name: 'alice.example.com' }, 'alice@example.com'),
+      service.save(zoneId, { ...record, name: 'bob.example.com' }, 'bob@example.com')
+    ])
+    expect(logs.entries.find(entry => entry.resource === 'alice.example.com')?.actorEmail).toBe('alice@example.com')
+    expect(logs.entries.find(entry => entry.resource === 'bob.example.com')?.actorEmail).toBe('bob@example.com')
+  })
   test('blocks changes before Cloudflare writes when logs are unavailable', async () => {
     const { gateway, logs, service, input } = setup()
     logs.ready = () => Promise.reject(new Error('Logs unavailable'))
-    await expect(service.save(tunnelId, input())).rejects.toThrow('Logs unavailable')
+    await expect(service.save(tunnelId, input(), actorEmail)).rejects.toThrow('Logs unavailable')
     const dns = new DnsService(gateway, logs)
-    await expect(dns.save(zoneId, { type: 'A', name: 'app.example.com', content: '192.0.2.1', ttl: 1, proxied: false, comment: '' })).rejects.toThrow('Logs unavailable')
+    await expect(dns.save(zoneId, { type: 'A', name: 'app.example.com', content: '192.0.2.1', ttl: 1, proxied: false, comment: '' }, actorEmail)).rejects.toThrow('Logs unavailable')
     expect(gateway.records).toHaveLength(0)
     expect(gateway.writes).toBe(0)
   })
   test('records a failed DNS deletion without including record values', async () => {
     const { gateway, logs } = setup()
     const service = new DnsService(gateway, logs)
-    const record = await service.save(zoneId, { type: 'A', name: 'app.example.com', content: '192.0.2.1', ttl: 1, proxied: false, comment: '' })
+    const record = await service.save(zoneId, { type: 'A', name: 'app.example.com', content: '192.0.2.1', ttl: 1, proxied: false, comment: '' }, actorEmail)
     gateway.failDelete = true
-    await expect(service.remove(zoneId, record.id)).rejects.toThrow('DNS delete failed')
+    await expect(service.remove(zoneId, record.id, actorEmail)).rejects.toThrow('DNS delete failed')
     expect(logs.entries[0]?.outcome).toBe('failure')
     expect(logs.entries[0]?.action).toBe('dns.delete')
+    expect(logs.entries[0]?.actorEmail).toBe(actorEmail)
     expect(JSON.stringify(logs.entries)).not.toContain('192.0.2.1')
   })
   test('validates IPs, TTL, priority and proxy support', () => {
@@ -175,7 +197,7 @@ describe('DNS validation and service', () => {
   test('rejects a hostname outside the selected zone', async () => {
     const { gateway, logs } = setup()
     const service = new DnsService(gateway, logs)
-    await expect(service.save(zoneId, { type: 'A', name: 'example.com.attacker.com', content: '192.0.2.1', ttl: 1, proxied: false, comment: '' })).rejects.toThrow('selected zone')
+    await expect(service.save(zoneId, { type: 'A', name: 'example.com.attacker.com', content: '192.0.2.1', ttl: 1, proxied: false, comment: '' }, actorEmail)).rejects.toThrow('selected zone')
   })
 })
 

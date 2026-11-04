@@ -19,8 +19,12 @@ export default defineNuxtConfig({
   runtimeConfig: {
     cloudflareApiToken: '',
     cloudflareAccountId: '',
-    adminPassword: '',
-    sessionPassword: '',
+    appUrl: 'http://localhost:3000',
+    authSecret: '',
+    entraTenantId: '',
+    entraClientId: '',
+    entraClientSecret: '',
+    entraAppRole: 'DNSConsole.Access',
     mysqlUrl: ''
   },
 

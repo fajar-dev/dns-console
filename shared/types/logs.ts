@@ -3,6 +3,7 @@ export interface LogEntry {
   timestamp: string
   action: string
   resource: string
+  actorEmail: string | null
   outcome: 'success' | 'failure'
   detail: string
 }

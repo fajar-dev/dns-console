@@ -7,6 +7,7 @@ interface LogRow extends RowDataPacket {
   created_at: Date
   action: string
   resource: string
+  actor_email: string | null
   outcome: LogEntry['outcome']
   detail: string
 }
@@ -21,13 +22,13 @@ export class MysqlLogRepository implements LogRepository {
   constructor(private readonly pool: Pool) {}
 
   async ready() {
-    await this.pool.execute('SELECT id FROM console_logs LIMIT 0')
+    await this.pool.execute('SELECT id, actor_email FROM console_logs LIMIT 0')
   }
 
   async append(entry: NewLogEntry) {
     await this.pool.execute(
-      'INSERT INTO console_logs (created_at, action, resource, outcome, detail) VALUES (UTC_TIMESTAMP(3), ?, ?, ?, ?)',
-      [entry.action, entry.resource, entry.outcome, entry.detail]
+      'INSERT INTO console_logs (created_at, action, resource, actor_email, outcome, detail) VALUES (UTC_TIMESTAMP(3), ?, ?, ?, ?, ?)',
+      [entry.action, entry.resource, entry.actorEmail, entry.outcome, entry.detail]
     )
   }
 
@@ -36,8 +37,8 @@ export class MysqlLogRepository implements LogRepository {
     const parameters: string[] = []
     if (query.search) {
       const search = `%${query.search.replace(/[!%_]/g, character => `!${character}`)}%`
-      conditions.push('(resource LIKE ? ESCAPE \'!\' OR action LIKE ? ESCAPE \'!\' OR detail LIKE ? ESCAPE \'!\')')
-      parameters.push(search, search, search)
+      conditions.push('(resource LIKE ? ESCAPE \'!\' OR action LIKE ? ESCAPE \'!\' OR detail LIKE ? ESCAPE \'!\' OR actor_email LIKE ? ESCAPE \'!\')')
+      parameters.push(search, search, search, search)
     }
     if (query.outcome !== 'all') {
       conditions.push('outcome = ?')
@@ -60,12 +61,12 @@ export class MysqlLogRepository implements LogRepository {
       const totalPages = Math.max(1, Math.ceil(total / query.pageSize))
       const page = Math.min(query.page, totalPages)
       const [rows] = await connection.execute<LogRow[]>(
-        `SELECT id, created_at, action, resource, outcome, detail FROM console_logs ${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+        `SELECT id, created_at, action, resource, actor_email, outcome, detail FROM console_logs ${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
         [...parameters, query.pageSize, (page - 1) * query.pageSize]
       )
       await connection.commit()
       return {
-        entries: rows.map(row => ({ id: String(row.id), timestamp: row.created_at.toISOString(), action: row.action, resource: row.resource, outcome: row.outcome, detail: row.detail })),
+        entries: rows.map(row => ({ id: String(row.id), timestamp: row.created_at.toISOString(), action: row.action, resource: row.resource, actorEmail: row.actor_email, outcome: row.outcome, detail: row.detail })),
         page, pageSize: query.pageSize, total, totalPages,
         summary: { success: Number(totals[0]?.success ?? 0), failure: Number(totals[0]?.failure ?? 0) }
       }
