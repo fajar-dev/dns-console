@@ -2,13 +2,13 @@
 import type { DnsRecord } from '#shared/types/cloudflare'
 import { editableDnsTypes } from '#shared/validation/cloudflare'
 
-const { data: zones, error: zonesError, status: zonesStatus, refresh: refreshZones } = useLazyFetch('/api/zones', { key: 'cloudflare-zones', server: false, default: () => [] })
+const { data: zones, error: zonesError, status: zonesStatus } = useLazyFetch('/api/zones', { key: 'cloudflare-zones', server: false, default: () => [] })
 const selectedZone = ref(zones.value[0]?.id ?? '')
 watch(zones, (value) => {
   if (!value.some(zone => zone.id === selectedZone.value)) selectedZone.value = value[0]?.id ?? ''
 })
 const zone = computed(() => zones.value.find(item => item.id === selectedZone.value))
-const { data: records, error, status, refresh } = useLazyAsyncData(
+const { data: records, error, status, refresh: reloadRecords } = useLazyAsyncData(
   () => `dns-records:${selectedZone.value}`,
   (_app, { signal }) => selectedZone.value ? $fetch<DnsRecord[]>(`/api/zones/${selectedZone.value}/records`, { signal }) : Promise.resolve([]),
   { server: false, default: () => [] }
@@ -39,12 +39,12 @@ function open(record?: DnsRecord) {
 }
 async function saved() {
   modal.value = false
-  await refresh()
+  await reloadRecords()
 }
 async function remove() {
   if (!deleting.value) return
   if (await mutate(() => $fetch(`/api/zones/${selectedZone.value}/records/${deleting.value!.id}`, { method: 'DELETE', body: {} }), 'DNS record deleted')) deleting.value = undefined
-  await refresh()
+  await reloadRecords()
 }
 </script>
 
@@ -56,14 +56,6 @@ async function remove() {
       description="Manage your domains and the records that connect them to your services."
     >
       <UButton
-        icon="i-lucide-refresh-cw"
-        color="neutral"
-        variant="outline"
-        aria-label="Refresh DNS records"
-        :loading="recordsLoading"
-        @click="refresh()"
-      />
-      <UButton
         label="Add record"
         icon="i-lucide-plus"
         :disabled="!zone"
@@ -74,7 +66,6 @@ async function remove() {
       v-if="zonesError"
       :error="zonesError"
       class="mb-6"
-      @retry="refreshZones()"
     />
     <div class="mb-8 grid gap-4 sm:grid-cols-3">
       <UCard
@@ -164,7 +155,6 @@ async function remove() {
         v-else-if="error"
         :error="error"
         class="m-5"
-        @retry="refresh()"
       />
       <div
         v-else-if="!visible.length"
@@ -237,21 +227,13 @@ async function remove() {
               </td><td class="px-5 py-4 text-xs text-muted">
                 {{ record.ttl === 1 ? 'Auto' : `${record.ttl}s` }}
               </td><td class="px-5 py-4">
-                <div class="flex justify-end gap-1">
-                  <UButton
-                    icon="i-lucide-pencil"
-                    color="neutral"
-                    variant="ghost"
-                    :disabled="recordsLoading || busy || !editableDnsTypes.includes(record.type as typeof editableDnsTypes[number])"
-                    :aria-label="`Edit ${record.name}`"
-                    @click="open(record)"
-                  /><UButton
-                    icon="i-lucide-trash-2"
-                    color="error"
-                    variant="ghost"
-                    :aria-label="`Delete ${record.name}`"
+                <div class="flex justify-end">
+                  <RowActions
+                    :label="`${record.type} ${record.name}`"
                     :disabled="recordsLoading || busy"
-                    @click="deleting = record"
+                    :edit-disabled="!editableDnsTypes.includes(record.type as typeof editableDnsTypes[number])"
+                    @edit="open(record)"
+                    @delete="deleting = record"
                   />
                 </div>
               </td>
@@ -269,7 +251,7 @@ async function remove() {
             v-else
             class="text-xs text-muted"
           >
-            {{ filtered.length }} records · Changes sync to Cloudflare
+            {{ filtered.length }} records
           </p><UPagination
             v-if="filtered.length > 15"
             v-model:page="page"

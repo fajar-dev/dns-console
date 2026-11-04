@@ -4,7 +4,7 @@ const menuOpen = ref(false)
 const links = [
   { label: 'DNS records', icon: 'i-lucide-globe', to: '/' },
   { label: 'Tunnels & routes', icon: 'i-lucide-network', to: '/tunnels' },
-  { label: 'Activity', icon: 'i-lucide-history', to: '/activity' },
+  { label: 'Logs', icon: 'i-lucide-logs', to: '/logs' },
   { label: 'Configuration', icon: 'i-lucide-settings-2', to: '/settings' }
 ]
 watch(() => route.path, () => {
@@ -101,15 +101,6 @@ async function logout() {
       <main class="mx-auto w-full max-w-7xl flex-1 px-5 py-10 sm:px-8 sm:py-12">
         <NuxtPage />
       </main>
-      <footer class="border-t border-muted">
-        <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-5 py-5 text-xs text-dimmed sm:px-8">
-          <span>DNS & Tunnel management</span>
-          <span class="flex items-center gap-1.5"><UIcon
-            name="i-lucide-lock-keyhole"
-            class="size-3.5"
-          />Private workspace</span>
-        </div>
-      </footer>
     </div>
   </UApp>
 </template>

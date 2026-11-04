@@ -5,7 +5,7 @@ import type { DnsRecordInput } from '../shared/validation/cloudflare'
 import { dnsRecordSchema, routeSchema } from '../shared/validation/cloudflare'
 import { DnsService } from '../server/application/dns-service'
 import { TunnelService, configurationVersion } from '../server/application/tunnel-service'
-import { SqliteAuditRepository } from '../server/infrastructure/sqlite-audit-repository'
+import { MemoryLogWriter } from './support/memory-log-writer'
 import { CloudflareHttpGateway } from '../server/infrastructure/cloudflare-gateway'
 
 const zoneId = 'a'.repeat(32)
@@ -51,22 +51,22 @@ class FakeGateway implements CloudflareGateway {
 }
 function setup() {
   const gateway = new FakeGateway()
-  const audit = new SqliteAuditRepository(':memory:')
-  const service = new TunnelService(gateway, audit)
+  const logs = new MemoryLogWriter()
+  const service = new TunnelService(gateway, logs)
   const input = () => ({ zoneId, hostname: 'app.example.com', service: 'http://localhost:3000', version: configurationVersion(gateway.config) })
-  return { gateway, audit, service, input }
+  return { gateway, logs, service, input }
 }
 
 describe('Tunnel publishing', () => {
   test('creates DNS and preserves catch-all, origin settings and private routing', async () => {
-    const { gateway, audit, service, input } = setup()
+    const { gateway, logs, service, input } = setup()
     await service.save(tunnelId, input())
     expect(gateway.records[0]?.content).toBe(`${tunnelId}.cfargotunnel.com`)
     expect(gateway.records[0]?.proxied).toBe(true)
     expect(gateway.config.ingress?.at(-1)?.service).toBe('http_status:404')
     expect(gateway.config.originRequest).toEqual({ connectTimeout: 15 })
     expect(gateway.config['warp-routing']).toEqual({ enabled: true })
-    expect(audit.recent()[0]?.action).toBe('route.create')
+    expect(logs.entries[0]?.action).toBe('route.create')
   })
   test('rejects stale revisions before changing DNS', async () => {
     const { gateway, service, input } = setup()
@@ -95,11 +95,11 @@ describe('Tunnel publishing', () => {
     expect(gateway.config.ingress?.[0]?.hostname).toBe('app.example.com')
   })
   test('reports cleanup failure for manual reconciliation', async () => {
-    const { gateway, service, input, audit } = setup()
+    const { gateway, service, input, logs } = setup()
     gateway.failWrite = true
     gateway.failDelete = true
     await expect(service.save(tunnelId, input())).rejects.toThrow('DNS cleanup failed')
-    expect(audit.recent()[0]?.outcome).toBe('failure')
+    expect(logs.entries[0]?.outcome).toBe('failure')
   })
   test('preserves pre-existing matching DNS when deleting a route', async () => {
     const { gateway, service, input } = setup()
@@ -124,13 +124,13 @@ describe('Tunnel publishing', () => {
     expect(gateway.config.ingress?.[0]?.service).toBe('http://localhost:3000')
   })
   test('reports DNS cleanup failure after route removal without restoring ingress', async () => {
-    const { gateway, service, input, audit } = setup()
+    const { gateway, service, input, logs } = setup()
     await service.save(tunnelId, input())
     gateway.failDelete = true
     await expect(service.remove(tunnelId, { zoneId, index: 0, version: configurationVersion(gateway.config) })).rejects.toThrow('Route was removed')
     expect(gateway.config.ingress).toEqual([{ service: 'http_status:404' }])
     expect(gateway.records).toHaveLength(1)
-    expect(audit.recent()[0]?.outcome).toBe('failure')
+    expect(logs.entries[0]?.outcome).toBe('failure')
   })
   test('serializes concurrent changes and rejects the stale writer', async () => {
     const { gateway, service, input } = setup()
@@ -146,6 +146,25 @@ describe('Tunnel publishing', () => {
 })
 
 describe('DNS validation and service', () => {
+  test('blocks changes before Cloudflare writes when logs are unavailable', async () => {
+    const { gateway, logs, service, input } = setup()
+    logs.ready = () => Promise.reject(new Error('Logs unavailable'))
+    await expect(service.save(tunnelId, input())).rejects.toThrow('Logs unavailable')
+    const dns = new DnsService(gateway, logs)
+    await expect(dns.save(zoneId, { type: 'A', name: 'app.example.com', content: '192.0.2.1', ttl: 1, proxied: false, comment: '' })).rejects.toThrow('Logs unavailable')
+    expect(gateway.records).toHaveLength(0)
+    expect(gateway.writes).toBe(0)
+  })
+  test('records a failed DNS deletion without including record values', async () => {
+    const { gateway, logs } = setup()
+    const service = new DnsService(gateway, logs)
+    const record = await service.save(zoneId, { type: 'A', name: 'app.example.com', content: '192.0.2.1', ttl: 1, proxied: false, comment: '' })
+    gateway.failDelete = true
+    await expect(service.remove(zoneId, record.id)).rejects.toThrow('DNS delete failed')
+    expect(logs.entries[0]?.outcome).toBe('failure')
+    expect(logs.entries[0]?.action).toBe('dns.delete')
+    expect(JSON.stringify(logs.entries)).not.toContain('192.0.2.1')
+  })
   test('validates IPs, TTL, priority and proxy support', () => {
     const record = { type: 'A', name: 'app.example.com', content: 'invalid', ttl: 1, proxied: false }
     expect(dnsRecordSchema.safeParse(record).success).toBe(false)
@@ -154,8 +173,8 @@ describe('DNS validation and service', () => {
     expect(routeSchema.safeParse({ zoneId, hostname: 'app.example.com', service: 'file:///etc/passwd', version: 'a'.repeat(64) }).success).toBe(false)
   })
   test('rejects a hostname outside the selected zone', async () => {
-    const { gateway, audit } = setup()
-    const service = new DnsService(gateway, audit)
+    const { gateway, logs } = setup()
+    const service = new DnsService(gateway, logs)
     await expect(service.save(zoneId, { type: 'A', name: 'example.com.attacker.com', content: '192.0.2.1', ttl: 1, proxied: false, comment: '' })).rejects.toThrow('selected zone')
   })
 })

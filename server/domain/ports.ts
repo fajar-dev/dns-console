@@ -1,4 +1,5 @@
-import type { AuditEntry, DnsRecord, Tunnel, TunnelConfig, Zone } from '#shared/types/cloudflare'
+import type { NewLogEntry, LogQuery, LogPage } from '#shared/types/logs'
+import type { DnsRecord, Tunnel, TunnelConfig, Zone } from '#shared/types/cloudflare'
 import type { DnsRecordInput } from '#shared/validation/cloudflare'
 
 export interface CloudflareGateway {
@@ -14,7 +15,13 @@ export interface CloudflareGateway {
   putConfiguration(id: string, config: TunnelConfig): Promise<void>
 }
 
-export interface AuditRepository {
-  append(entry: Omit<AuditEntry, 'id' | 'timestamp'>): void
-  recent(): AuditEntry[]
+export interface LogRepository {
+  ready(): Promise<void>
+  append(entry: NewLogEntry): Promise<void>
+  list(query: LogQuery): Promise<LogPage>
+}
+
+export interface LogWriter {
+  ready(): Promise<void>
+  record(entry: NewLogEntry): Promise<void>
 }

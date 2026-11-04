@@ -74,9 +74,6 @@ async function login() {
           />
         </form>
       </UCard>
-      <p class="mt-5 text-center text-xs text-muted">
-        Private admin access · Powered by Cloudflare & Bun
-      </p>
     </div>
   </main>
 </template>

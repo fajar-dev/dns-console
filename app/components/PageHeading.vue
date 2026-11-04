@@ -15,7 +15,10 @@ defineProps<{ eyebrow: string, title: string, description: string }>()
         {{ description }}
       </p>
     </div>
-    <div class="flex items-center gap-2">
+    <div
+      v-if="$slots.default"
+      class="flex items-center gap-2"
+    >
       <slot />
     </div>
   </div>

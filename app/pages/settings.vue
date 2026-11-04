@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const { data: session } = await useFetch('/api/auth/session')
-const { data: zones, error, status, refresh } = useLazyFetch('/api/zones', { key: 'cloudflare-zones', server: false, default: () => [] })
+const { data: zones, error, status } = useLazyFetch('/api/zones', { key: 'cloudflare-zones', server: false, default: () => [] })
 const loading = computed(() => status.value === 'idle' || status.value === 'pending')
 const initialLoading = computed(() => loading.value && !zones.value.length)
 const environment = [
@@ -8,7 +8,7 @@ const environment = [
   { name: 'NUXT_CLOUDFLARE_ACCOUNT_ID', description: 'The Cloudflare account containing your domains and tunnels.' },
   { name: 'NUXT_ADMIN_PASSWORD', description: 'Unique admin login password, at least 12 characters.' },
   { name: 'NUXT_SESSION_PASSWORD', description: 'Random session encryption secret, at least 32 characters.' },
-  { name: 'NUXT_AUDIT_DATABASE_PATH', description: 'Persistent SQLite path. Defaults to ./.data/audit.sqlite.' }
+  { name: 'NUXT_MYSQL_URL', description: 'MySQL connection URL for persistent logs. Run bun run db:migrate before starting.' }
 ]
 </script>
 
@@ -96,7 +96,6 @@ const environment = [
           <RequestError
             v-else-if="error"
             :error="error"
-            @retry="refresh()"
           /><p
             v-else
             class="flex items-center gap-2 text-sm"
@@ -105,15 +104,7 @@ const environment = [
               name="i-lucide-circle-check"
               class="text-primary"
             />{{ zones.length }} accessible domains
-          </p><UButton
-            label="Test connection"
-            icon="i-lucide-refresh-cw"
-            color="neutral"
-            variant="outline"
-            class="mt-4"
-            :loading="loading"
-            @click="refresh()"
-          />
+          </p>
         </UCard>
       </div>
     </div>

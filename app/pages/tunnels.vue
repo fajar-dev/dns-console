@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import type { IngressRule, RouteConfiguration } from '#shared/types/cloudflare'
 
-const { data: tunnels, error, status, refresh } = useLazyFetch('/api/tunnels', { server: false, default: () => [] })
-const { data: zones, error: zonesError, status: zonesStatus, refresh: refreshZones } = useLazyFetch('/api/zones', { key: 'cloudflare-zones', server: false, default: () => [] })
+const { data: tunnels, error, status } = useLazyFetch('/api/tunnels', { server: false, default: () => [] })
+const { data: zones, error: zonesError, status: zonesStatus } = useLazyFetch('/api/zones', { key: 'cloudflare-zones', server: false, default: () => [] })
 const selectedId = ref(tunnels.value[0]?.id ?? '')
 watch(tunnels, (value) => {
   if (!value.some(tunnel => tunnel.id === selectedId.value)) selectedId.value = value[0]?.id ?? ''
 })
 const selected = computed(() => tunnels.value.find(tunnel => tunnel.id === selectedId.value))
-const { data: configuration, error: configError, status: configStatus, refresh: refreshConfiguration } = useLazyAsyncData(
+const { data: configuration, error: configError, status: configStatus, refresh: reloadConfiguration } = useLazyAsyncData(
   () => `tunnel-configuration:${selectedId.value}`,
   (_app, { signal }) => selectedId.value ? $fetch<RouteConfiguration>(`/api/tunnels/${selectedId.value}/routes`, { signal }) : Promise.resolve(null),
   { server: false, default: () => null }
@@ -18,18 +18,6 @@ const initialLoading = computed(() => tunnelsLoading.value && !tunnels.value.len
 const zonesLoading = computed(() => zonesStatus.value === 'idle' || zonesStatus.value === 'pending')
 const configLoading = computed(() => !!selectedId.value && (configStatus.value === 'idle' || configStatus.value === 'pending'))
 const configInitialLoading = computed(() => configLoading.value && !configuration.value)
-const refreshing = ref(false)
-async function refreshAll() {
-  if (refreshing.value) return
-  refreshing.value = true
-  const previousId = selectedId.value
-  try {
-    await Promise.all([refresh(), refreshZones()])
-    if (previousId && selectedId.value === previousId) await refreshConfiguration()
-  } finally {
-    refreshing.value = false
-  }
-}
 const rules = computed(() => (configuration.value?.config.ingress ?? []).map((rule, index) => ({ ...rule, index })).filter(rule => rule.hostname))
 const modal = ref(false)
 const editing = ref<{ rule: IngressRule, index: number }>()
@@ -44,7 +32,7 @@ function open(rule?: IngressRule, index?: number) {
 }
 async function saved() {
   modal.value = false
-  await refreshConfiguration()
+  await reloadConfiguration()
 }
 async function remove() {
   if (!deleting.value || !configuration.value) return
@@ -52,7 +40,7 @@ async function remove() {
   const zone = zones.value.filter(item => hostname === item.name || hostname?.endsWith(`.${item.name}`)).sort((a, b) => b.name.length - a.name.length)[0]
   if (!zone) return
   if (await mutate(() => $fetch(`/api/tunnels/${selectedId.value}/routes`, { method: 'DELETE', body: { zoneId: zone.id, index: deleting.value!.index, version: deleting.value!.version } }), 'Tunnel route removed')) deleting.value = undefined
-  await refreshConfiguration()
+  await reloadConfiguration()
 }
 function canManage(hostname?: string) {
   return zones.value.some(zone => hostname === zone.name || hostname?.endsWith(`.${zone.name}`))
@@ -65,21 +53,11 @@ function canManage(hostname?: string) {
       eyebrow="Secure connectivity"
       title="Tunnels & routes"
       description="Connect public hostnames to services on your private infrastructure."
-    >
-      <UButton
-        icon="i-lucide-refresh-cw"
-        label="Refresh"
-        color="neutral"
-        variant="outline"
-        :loading="tunnelsLoading || refreshing"
-        @click="refreshAll"
-      />
-    </PageHeading>
+    />
     <RequestError
       v-if="error"
       :error="error"
       class="mb-6"
-      @retry="refresh()"
     />
     <USkeleton
       v-if="initialLoading"
@@ -207,7 +185,6 @@ function canManage(hostname?: string) {
         v-else-if="configError"
         :error="configError"
         class="m-5"
-        @retry="refreshConfiguration()"
       />
       <div
         v-else-if="!configuration?.editable"
@@ -273,21 +250,12 @@ function canManage(hostname?: string) {
                   class="text-dimmed"
                 />{{ rule.service }}</span>
               </td><td class="px-5 py-5">
-                <div class="flex justify-end gap-1">
-                  <UButton
-                    icon="i-lucide-pencil"
-                    variant="ghost"
-                    color="neutral"
-                    :aria-label="`Edit ${rule.hostname}`"
+                <div class="flex justify-end">
+                  <RowActions
+                    :label="rule.hostname ?? 'tunnel route'"
                     :disabled="configLoading || busy || !canManage(rule.hostname)"
-                    @click="open(rule, rule.index)"
-                  /><UButton
-                    icon="i-lucide-trash-2"
-                    variant="ghost"
-                    color="error"
-                    :aria-label="`Delete ${rule.hostname}`"
-                    :disabled="configLoading || busy || !canManage(rule.hostname)"
-                    @click="deleting = { rule, index: rule.index, version: configuration?.version ?? '' }"
+                    @edit="open(rule, rule.index)"
+                    @delete="deleting = { rule, index: rule.index, version: configuration?.version ?? '' }"
                   />
                 </div>
               </td>
@@ -309,14 +277,7 @@ function canManage(hostname?: string) {
       class="mt-3 text-xs text-error"
       role="alert"
     >
-      Domain access could not be loaded. <UButton
-        label="Retry"
-        color="error"
-        variant="link"
-        size="xs"
-        :loading="zonesLoading"
-        @click="refreshZones()"
-      />
+      Domain access could not be loaded.
     </p>
     <UModal
       v-model:open="modal"
@@ -333,7 +294,7 @@ function canManage(hostname?: string) {
           :rule="editing?.rule"
           :index="editing?.index"
           @saved="saved"
-          @changed="refreshConfiguration()"
+          @changed="reloadConfiguration()"
         />
       </template>
     </UModal>

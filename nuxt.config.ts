@@ -21,14 +21,13 @@ export default defineNuxtConfig({
     cloudflareAccountId: '',
     adminPassword: '',
     sessionPassword: '',
-    auditDatabasePath: './.data/audit.sqlite'
+    mysqlUrl: ''
   },
 
   compatibilityDate: '2026-06-30',
 
   nitro: {
-    preset: 'bun',
-    externals: { external: ['bun:sqlite'] }
+    preset: 'bun'
   },
 
   eslint: {

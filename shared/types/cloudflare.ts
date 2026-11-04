@@ -45,12 +45,3 @@ export interface RouteConfiguration {
   version: string
   editable: boolean
 }
-
-export interface AuditEntry {
-  id: string
-  timestamp: string
-  action: string
-  resource: string
-  outcome: 'success' | 'failure'
-  detail: string
-}
