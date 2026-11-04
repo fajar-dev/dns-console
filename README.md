@@ -51,7 +51,8 @@ Open `http://localhost:3000` and sign in with the configured admin password. If 
 - Publish routes with automatic proxied CNAME creation and conflict checks.
 - Preserve existing path matches, origin settings, private routing configuration, and the final catch-all rule.
 - View the latest 100 locally recorded changes in a persistent SQLite audit log.
-- Responsive Nuxt UI dashboard with light/dark mode, loading states, inline validation, and error feedback.
+- Responsive Nuxt UI dashboard with light/dark mode, inline validation, and error feedback.
+- Non-blocking data loading with a navigation progress bar and skeletons for DNS records, tunnels, routes, activity, and connection checks. Existing data stays visible during refresh, and requests are scoped to the selected domain or tunnel.
 
 Tunnel creation/deletion, connector installation, Cloudflare Access policies, private network CIDR routes, multi-account management, and multi-user roles are outside this version's scope. HTTP applications can be published directly; SSH/TCP/RDP services require the appropriate Cloudflare client-side access setup.
 

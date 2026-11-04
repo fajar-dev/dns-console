@@ -2,13 +2,20 @@
 import type { DnsRecord } from '#shared/types/cloudflare'
 import { editableDnsTypes } from '#shared/validation/cloudflare'
 
-const { data: zones, error: zonesError, status: zonesStatus, refresh: refreshZones } = await useFetch('/api/zones', { default: () => [] })
+const { data: zones, error: zonesError, status: zonesStatus, refresh: refreshZones } = useLazyFetch('/api/zones', { key: 'cloudflare-zones', server: false, default: () => [] })
 const selectedZone = ref(zones.value[0]?.id ?? '')
 watch(zones, (value) => {
   if (!value.some(zone => zone.id === selectedZone.value)) selectedZone.value = value[0]?.id ?? ''
 })
 const zone = computed(() => zones.value.find(item => item.id === selectedZone.value))
-const { data: records, error, status, refresh } = await useAsyncData('dns-records', () => selectedZone.value ? $fetch<DnsRecord[]>(`/api/zones/${selectedZone.value}/records`) : Promise.resolve([]), { watch: [selectedZone], default: () => [] })
+const { data: records, error, status, refresh } = useLazyAsyncData(
+  () => `dns-records:${selectedZone.value}`,
+  (_app, { signal }) => selectedZone.value ? $fetch<DnsRecord[]>(`/api/zones/${selectedZone.value}/records`, { signal }) : Promise.resolve([]),
+  { server: false, default: () => [] }
+)
+const zonesLoading = computed(() => zonesStatus.value === 'idle' || zonesStatus.value === 'pending')
+const recordsLoading = computed(() => zonesLoading.value || (!!selectedZone.value && (status.value === 'idle' || status.value === 'pending')))
+const initialLoading = computed(() => recordsLoading.value && !records.value.length)
 const search = ref('')
 const type = ref('All types')
 const page = ref(1)
@@ -21,7 +28,11 @@ const visible = computed(() => filtered.value.slice((page.value - 1) * 15, page.
 watch([search, type, selectedZone], () => {
   page.value = 1
 })
-const stats = computed(() => [{ label: 'Domains', value: zones.value.length, icon: 'i-lucide-globe' }, { label: 'DNS records', value: records.value.length, icon: 'i-lucide-list-tree' }, { label: 'Proxied records', value: records.value.filter(record => record.proxied).length, icon: 'i-lucide-shield-check' }])
+const stats = computed(() => [
+  { label: 'Domains', value: zonesError.value ? '—' : zones.value.length, loading: zonesLoading.value && !zones.value.length, icon: 'i-lucide-globe' },
+  { label: 'DNS records', value: error.value || zonesError.value ? '—' : records.value.length, loading: initialLoading.value, icon: 'i-lucide-list-tree' },
+  { label: 'Proxied records', value: error.value || zonesError.value ? '—' : records.value.filter(record => record.proxied).length, loading: initialLoading.value, icon: 'i-lucide-shield-check' }
+])
 function open(record?: DnsRecord) {
   editing.value = record
   modal.value = true
@@ -38,7 +49,7 @@ async function remove() {
 </script>
 
 <template>
-  <div>
+  <div :aria-busy="recordsLoading || busy">
     <PageHeading
       eyebrow="Network control"
       title="DNS records"
@@ -49,7 +60,7 @@ async function remove() {
         color="neutral"
         variant="outline"
         aria-label="Refresh DNS records"
-        :loading="status === 'pending'"
+        :loading="recordsLoading"
         @click="refresh()"
       />
       <UButton
@@ -74,7 +85,22 @@ async function remove() {
           <div>
             <p class="text-sm text-muted">
               {{ stat.label }}
-            </p><p class="mt-3 text-2xl font-medium tracking-tight text-highlighted">
+            </p>
+            <div
+              v-if="stat.loading"
+              role="status"
+              class="mt-3"
+            >
+              <span class="sr-only">Loading {{ stat.label }}</span>
+              <USkeleton
+                class="h-8 w-16"
+                aria-hidden="true"
+              />
+            </div>
+            <p
+              v-else
+              class="mt-3 text-2xl font-medium tracking-tight text-highlighted"
+            >
               {{ stat.value }}
             </p>
           </div><span class="flex size-8 items-center justify-center rounded-md bg-default"><UIcon
@@ -93,7 +119,11 @@ async function remove() {
               class="text-primary"
             /><h2 class="font-semibold">
               Domain records
-            </h2><UBadge
+            </h2><USkeleton
+              v-if="initialLoading"
+              class="h-5 w-7"
+            /><UBadge
+              v-else
               variant="subtle"
               color="neutral"
             >
@@ -104,7 +134,8 @@ async function remove() {
             :items="zones.map(item => ({ label: item.name, value: item.id }))"
             placeholder="Select a domain"
             class="w-full sm:w-64"
-            :loading="zonesStatus === 'pending'"
+            :loading="zonesLoading"
+            :disabled="zonesLoading || !zones.length"
             aria-label="Domain"
           />
         </div>
@@ -116,23 +147,19 @@ async function remove() {
           placeholder="Search hostname or content…"
           class="min-w-48 flex-1"
           aria-label="Search DNS records"
+          :disabled="initialLoading || !zone"
         /><USelect
           v-model="type"
           :items="['All types', ...new Set(records.map(record => record.type))]"
           class="w-36"
           aria-label="Record type"
+          :disabled="initialLoading || !zone"
         />
       </div>
-      <div
-        v-if="status === 'pending'"
-        class="space-y-4 p-6"
-      >
-        <USkeleton
-          v-for="i in 5"
-          :key="i"
-          class="h-10 w-full"
-        />
-      </div>
+      <TableSkeleton
+        v-if="initialLoading"
+        label="Loading DNS records"
+      />
       <RequestError
         v-else-if="error"
         :error="error"
@@ -215,7 +242,7 @@ async function remove() {
                     icon="i-lucide-pencil"
                     color="neutral"
                     variant="ghost"
-                    :disabled="!editableDnsTypes.includes(record.type as typeof editableDnsTypes[number])"
+                    :disabled="recordsLoading || busy || !editableDnsTypes.includes(record.type as typeof editableDnsTypes[number])"
                     :aria-label="`Edit ${record.name}`"
                     @click="open(record)"
                   /><UButton
@@ -223,6 +250,7 @@ async function remove() {
                     color="error"
                     variant="ghost"
                     :aria-label="`Delete ${record.name}`"
+                    :disabled="recordsLoading || busy"
                     @click="deleting = record"
                   />
                 </div>
@@ -233,7 +261,14 @@ async function remove() {
       </div>
       <template #footer>
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <p class="text-xs text-muted">
+          <USkeleton
+            v-if="initialLoading"
+            class="h-3 w-48"
+          />
+          <p
+            v-else
+            class="text-xs text-muted"
+          >
             {{ filtered.length }} records · Changes sync to Cloudflare
           </p><UPagination
             v-if="filtered.length > 15"

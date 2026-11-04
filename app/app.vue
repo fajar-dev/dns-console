@@ -19,6 +19,11 @@ async function logout() {
 
 <template>
   <UApp>
+    <NuxtLoadingIndicator
+      color="var(--ui-primary)"
+      :height="2"
+      :throttle="0"
+    />
     <NuxtPage v-if="route.path === '/login'" />
     <div
       v-else

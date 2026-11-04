@@ -64,6 +64,9 @@ export default defineAppConfig({
         error: 'mt-1.5 text-xs leading-5 text-error'
       }
     },
+    skeleton: {
+      base: 'animate-pulse rounded-md bg-inverted/10 motion-reduce:animate-none'
+    },
     alert: {
       slots: {
         root: 'rounded-lg p-3',

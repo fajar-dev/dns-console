@@ -1,6 +1,8 @@
 <script setup lang="ts">
 const { data: session } = await useFetch('/api/auth/session')
-const { data: zones, error, status, refresh } = await useFetch('/api/zones', { default: () => [] })
+const { data: zones, error, status, refresh } = useLazyFetch('/api/zones', { key: 'cloudflare-zones', server: false, default: () => [] })
+const loading = computed(() => status.value === 'idle' || status.value === 'pending')
+const initialLoading = computed(() => loading.value && !zones.value.length)
 const environment = [
   { name: 'NUXT_CLOUDFLARE_API_TOKEN', description: 'Scoped Cloudflare API token with DNS and Tunnel permissions.' },
   { name: 'NUXT_CLOUDFLARE_ACCOUNT_ID', description: 'The Cloudflare account containing your domains and tunnels.' },
@@ -82,8 +84,17 @@ const environment = [
             <h2 class="font-semibold">
               Connection check
             </h2>
-          </template><RequestError
-            v-if="error"
+          </template>
+          <div
+            v-if="initialLoading"
+            role="status"
+            aria-label="Checking Cloudflare connection"
+            class="flex items-center gap-2"
+          >
+            <USkeleton class="size-4" /><USkeleton class="h-4 w-40" />
+          </div>
+          <RequestError
+            v-else-if="error"
             :error="error"
             @retry="refresh()"
           /><p
@@ -100,7 +111,7 @@ const environment = [
             color="neutral"
             variant="outline"
             class="mt-4"
-            :loading="status === 'pending'"
+            :loading="loading"
             @click="refresh()"
           />
         </UCard>

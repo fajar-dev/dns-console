@@ -1,9 +1,11 @@
 <script setup lang="ts">
-const { data: entries, error, status, refresh } = await useFetch('/api/activity', { default: () => [] })
+const { data: entries, error, status, refresh } = useLazyFetch('/api/activity', { server: false, default: () => [] })
+const loading = computed(() => status.value === 'idle' || status.value === 'pending')
+const initialLoading = computed(() => loading.value && !entries.value.length)
 </script>
 
 <template>
-  <div>
+  <div :aria-busy="loading">
     <PageHeading
       eyebrow="Workspace history"
       title="Activity"
@@ -14,7 +16,7 @@ const { data: entries, error, status, refresh } = await useFetch('/api/activity'
         icon="i-lucide-refresh-cw"
         color="neutral"
         variant="outline"
-        :loading="status === 'pending'"
+        :loading="loading"
         @click="refresh()"
       />
     </PageHeading>
@@ -35,7 +37,11 @@ const { data: entries, error, status, refresh } = await useFetch('/api/activity'
             class="text-primary"
           /><h2 class="font-semibold">
             Change history
-          </h2><UBadge
+          </h2><USkeleton
+            v-if="initialLoading"
+            class="h-5 w-7"
+          /><UBadge
+            v-else
             color="neutral"
             variant="subtle"
           >
@@ -44,7 +50,28 @@ const { data: entries, error, status, refresh } = await useFetch('/api/activity'
         </div>
       </template>
       <div
-        v-if="!entries.length"
+        v-if="initialLoading"
+        role="status"
+        aria-live="polite"
+        class="divide-y divide-muted"
+      >
+        <span class="sr-only">Loading activity</span>
+        <div
+          v-for="i in 5"
+          :key="i"
+          class="flex gap-4 p-5"
+          aria-hidden="true"
+        >
+          <USkeleton class="size-9 shrink-0" />
+          <div class="flex-1">
+            <div class="flex justify-between gap-4">
+              <USkeleton class="h-4 w-1/3" /><USkeleton class="h-3 w-24" />
+            </div><USkeleton class="mt-3 h-3 w-2/3" /><USkeleton class="mt-3 h-5 w-20" />
+          </div>
+        </div>
+      </div>
+      <div
+        v-else-if="!entries.length"
         class="px-6 py-16 text-center"
       >
         <UIcon

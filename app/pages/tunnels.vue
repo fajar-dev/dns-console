@@ -1,14 +1,35 @@
 <script setup lang="ts">
 import type { IngressRule, RouteConfiguration } from '#shared/types/cloudflare'
 
-const { data: tunnels, error, status, refresh } = await useFetch('/api/tunnels', { default: () => [] })
-const { data: zones } = await useFetch('/api/zones', { default: () => [] })
+const { data: tunnels, error, status, refresh } = useLazyFetch('/api/tunnels', { server: false, default: () => [] })
+const { data: zones, error: zonesError, status: zonesStatus, refresh: refreshZones } = useLazyFetch('/api/zones', { key: 'cloudflare-zones', server: false, default: () => [] })
 const selectedId = ref(tunnels.value[0]?.id ?? '')
 watch(tunnels, (value) => {
   if (!value.some(tunnel => tunnel.id === selectedId.value)) selectedId.value = value[0]?.id ?? ''
 })
 const selected = computed(() => tunnels.value.find(tunnel => tunnel.id === selectedId.value))
-const { data: configuration, error: configError, status: configStatus, refresh: refreshConfiguration } = await useAsyncData('tunnel-configuration', () => selectedId.value ? $fetch<RouteConfiguration>(`/api/tunnels/${selectedId.value}/routes`) : Promise.resolve(null), { watch: [selectedId] })
+const { data: configuration, error: configError, status: configStatus, refresh: refreshConfiguration } = useLazyAsyncData(
+  () => `tunnel-configuration:${selectedId.value}`,
+  (_app, { signal }) => selectedId.value ? $fetch<RouteConfiguration>(`/api/tunnels/${selectedId.value}/routes`, { signal }) : Promise.resolve(null),
+  { server: false, default: () => null }
+)
+const tunnelsLoading = computed(() => status.value === 'idle' || status.value === 'pending')
+const initialLoading = computed(() => tunnelsLoading.value && !tunnels.value.length)
+const zonesLoading = computed(() => zonesStatus.value === 'idle' || zonesStatus.value === 'pending')
+const configLoading = computed(() => !!selectedId.value && (configStatus.value === 'idle' || configStatus.value === 'pending'))
+const configInitialLoading = computed(() => configLoading.value && !configuration.value)
+const refreshing = ref(false)
+async function refreshAll() {
+  if (refreshing.value) return
+  refreshing.value = true
+  const previousId = selectedId.value
+  try {
+    await Promise.all([refresh(), refreshZones()])
+    if (previousId && selectedId.value === previousId) await refreshConfiguration()
+  } finally {
+    refreshing.value = false
+  }
+}
 const rules = computed(() => (configuration.value?.config.ingress ?? []).map((rule, index) => ({ ...rule, index })).filter(rule => rule.hostname))
 const modal = ref(false)
 const editing = ref<{ rule: IngressRule, index: number }>()
@@ -39,7 +60,7 @@ function canManage(hostname?: string) {
 </script>
 
 <template>
-  <div>
+  <div :aria-busy="tunnelsLoading || configLoading || busy">
     <PageHeading
       eyebrow="Secure connectivity"
       title="Tunnels & routes"
@@ -50,8 +71,8 @@ function canManage(hostname?: string) {
         label="Refresh"
         color="neutral"
         variant="outline"
-        :loading="status === 'pending'"
-        @click="async () => { await refresh(); await refreshConfiguration() }"
+        :loading="tunnelsLoading || refreshing"
+        @click="refreshAll"
       />
     </PageHeading>
     <RequestError
@@ -60,18 +81,37 @@ function canManage(hostname?: string) {
       class="mb-6"
       @retry="refresh()"
     />
-    <div class="mb-8 flex items-center gap-2 text-sm text-muted">
+    <USkeleton
+      v-if="initialLoading"
+      class="mb-8 h-5 w-48"
+    />
+    <div
+      v-else
+      class="mb-8 flex items-center gap-2 text-sm text-muted"
+    >
       <span class="size-2 rounded-lg bg-primary" />{{ tunnels.filter(tunnel => tunnel.status === 'healthy').length }} healthy<span class="mx-2 text-dimmed">/</span>{{ tunnels.length }} total tunnels
     </div>
     <div
-      v-if="status === 'pending'"
-      class="mb-6 grid gap-4 md:grid-cols-2"
+      v-if="initialLoading"
+      class="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+      role="status"
+      aria-live="polite"
     >
-      <USkeleton
-        v-for="i in 2"
+      <span class="sr-only">Loading tunnels</span>
+      <UCard
+        v-for="i in 3"
         :key="i"
-        class="h-36"
-      />
+        aria-hidden="true"
+      >
+        <div class="mb-4 flex items-center justify-between">
+          <USkeleton class="size-9" /><USkeleton class="h-5 w-16" />
+        </div>
+        <USkeleton class="h-5 w-2/3" />
+        <USkeleton class="mt-2 h-3 w-full" />
+        <div class="mt-4 flex justify-between">
+          <USkeleton class="h-3 w-20" /><USkeleton class="h-3 w-28" />
+        </div>
+      </UCard>
     </div>
     <div
       v-else-if="tunnels.length"
@@ -137,20 +177,31 @@ function canManage(hostname?: string) {
           <div>
             <h2 class="font-semibold">
               Public hostname routes
-            </h2><p class="mt-1 text-xs text-muted">
+            </h2>
+            <USkeleton
+              v-if="configInitialLoading"
+              class="mt-2 h-3 w-48"
+            />
+            <p
+              v-else
+              class="mt-1 text-xs text-muted"
+            >
               {{ selected.name }} · {{ rules.length }} published routes
             </p>
           </div><UButton
             label="Publish route"
             icon="i-lucide-plus"
-            :disabled="!configuration?.editable || !zones.length || configStatus === 'pending'"
+            :disabled="!configuration?.editable || !zones.length || configLoading || zonesLoading"
+            :loading="zonesLoading"
             @click="open()"
           />
         </div>
       </template>
-      <USkeleton
-        v-if="configStatus === 'pending'"
-        class="m-5 h-24"
+      <TableSkeleton
+        v-if="configInitialLoading"
+        :columns="3"
+        :rows="3"
+        label="Loading tunnel routes"
       />
       <RequestError
         v-else-if="configError"
@@ -228,14 +279,14 @@ function canManage(hostname?: string) {
                     variant="ghost"
                     color="neutral"
                     :aria-label="`Edit ${rule.hostname}`"
-                    :disabled="!canManage(rule.hostname)"
+                    :disabled="configLoading || busy || !canManage(rule.hostname)"
                     @click="open(rule, rule.index)"
                   /><UButton
                     icon="i-lucide-trash-2"
                     variant="ghost"
                     color="error"
                     :aria-label="`Delete ${rule.hostname}`"
-                    :disabled="!canManage(rule.hostname)"
+                    :disabled="configLoading || busy || !canManage(rule.hostname)"
                     @click="deleting = { rule, index: rule.index, version: configuration?.version ?? '' }"
                   />
                 </div>
@@ -253,6 +304,20 @@ function canManage(hostname?: string) {
         </p>
       </template>
     </UCard>
+    <p
+      v-if="zonesError && !error"
+      class="mt-3 text-xs text-error"
+      role="alert"
+    >
+      Domain access could not be loaded. <UButton
+        label="Retry"
+        color="error"
+        variant="link"
+        size="xs"
+        :loading="zonesLoading"
+        @click="refreshZones()"
+      />
+    </p>
     <UModal
       v-model:open="modal"
       :title="editing ? 'Edit tunnel route' : 'Publish a service'"

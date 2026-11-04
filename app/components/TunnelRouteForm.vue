@@ -9,8 +9,9 @@ const state = reactive({ zoneId: matchingZone?.id ?? props.zones[0]?.id ?? '', h
 const { busy, mutate } = useConsole()
 const stale = computed(() => props.version !== state.version)
 async function submit() {
-  if (await mutate(() => $fetch(`/api/tunnels/${props.tunnelId}/routes`, { method: 'POST', body: routeSchema.parse(state) }), 'Tunnel route saved')) emit('saved')
-  emit('changed')
+  const saved = await mutate(() => $fetch(`/api/tunnels/${props.tunnelId}/routes`, { method: 'POST', body: routeSchema.parse(state) }), 'Tunnel route saved')
+  if (saved) emit('saved')
+  else emit('changed')
 }
 </script>
 
