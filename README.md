@@ -141,6 +141,40 @@ bun run start
 
 Run behind an HTTPS reverse proxy that forwards the request host and scheme correctly. Use a single application process; deployments with multiple replicas require distributed tunnel locking.
 
+### PM2
+
+Install PM2 on the production host, then run these commands from the application directory:
+
+```bash
+bun install --global pm2
+bun install --frozen-lockfile
+bun run build
+pm2 start ecosystem.config.cjs
+pm2 save
+```
+
+Configure `.env` using the variables listed above. Bun loads it from the application directory. The configuration runs one Bun process in fork mode, binds to `127.0.0.1:3000` by default, restarts after crashes, and allows 45 seconds for graceful shutdown. The SQLite schema is initialized automatically on first database access. Keep `.data` across deployments, or set `NUXT_SQLITE_PATH` to a persistent path outside the checkout.
+
+Ensure `bun` is available in the PM2 service's `PATH`. To use an absolute executable path, set `BUN_BIN` when starting or restarting the ecosystem file. `HOST` and `PORT` can also be set in the shell before loading the configuration.
+
+```bash
+# Deploy updated code and reload environment variables
+bun install --frozen-lockfile
+bun run build
+pm2 restart ecosystem.config.cjs --update-env
+pm2 save
+
+# Inspect process status, output and database readiness
+pm2 status dns-console
+pm2 logs dns-console
+curl --fail http://127.0.0.1:3000/health
+
+# Generate the host-specific boot service instructions
+pm2 startup
+```
+
+Follow the command printed by `pm2 startup`, then run `pm2 save` again. Application output is written to `logs/pm2-out.log` and `logs/pm2-error.log`; configure host log rotation for this directory. Restarting the single process briefly interrupts requests.
+
 ## Scope
 
 DNS Console manages one Cloudflare account and one Microsoft Entra tenant. Tunnel creation and deletion, connector installation, Cloudflare Access policies, and private network CIDR routes are managed through Cloudflare.
