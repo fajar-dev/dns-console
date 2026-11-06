@@ -8,6 +8,8 @@ interface LogRow {
   action: string
   resource: string
   actor_email: string | null
+  account_key: string | null
+  account_name: string | null
   outcome: LogEntry['outcome']
   detail: string
 }
@@ -22,13 +24,13 @@ export class SqliteLogRepository implements LogRepository {
   constructor(private readonly database: Database) {}
 
   async ready() {
-    this.database.query('SELECT id, actor_email FROM console_logs LIMIT 0').all()
+    this.database.query('SELECT id, actor_email, account_key, account_name FROM console_logs LIMIT 0').all()
   }
 
   async append(entry: NewLogEntry) {
     this.database.query(
-      'INSERT INTO console_logs (created_at, action, resource, actor_email, outcome, detail) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(new Date().toISOString(), entry.action, entry.resource, entry.actorEmail, entry.outcome, entry.detail)
+      'INSERT INTO console_logs (created_at, action, resource, actor_email, outcome, detail, account_key, account_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(new Date().toISOString(), entry.action, entry.resource, entry.actorEmail, entry.outcome, entry.detail, entry.accountKey ?? null, entry.accountName ?? null)
   }
 
   async list(query: LogQuery): Promise<LogPage> {
@@ -36,8 +38,8 @@ export class SqliteLogRepository implements LogRepository {
     const parameters: string[] = []
     if (query.search) {
       const search = `%${query.search.replace(/[!%_]/g, character => `!${character}`)}%`
-      conditions.push('(resource LIKE ? ESCAPE \'!\' OR action LIKE ? ESCAPE \'!\' OR detail LIKE ? ESCAPE \'!\' OR actor_email LIKE ? ESCAPE \'!\')')
-      parameters.push(search, search, search, search)
+      conditions.push('(resource LIKE ? ESCAPE \'!\' OR action LIKE ? ESCAPE \'!\' OR detail LIKE ? ESCAPE \'!\' OR actor_email LIKE ? ESCAPE \'!\' OR account_name LIKE ? ESCAPE \'!\')')
+      parameters.push(search, search, search, search, search)
     }
     if (query.outcome !== 'all') {
       conditions.push('outcome = ?')
@@ -46,6 +48,10 @@ export class SqliteLogRepository implements LogRepository {
     if (query.category !== 'all') {
       conditions.push('action LIKE ?')
       parameters.push(`${query.category}.%`)
+    }
+    if (query.account !== 'all') {
+      conditions.push('account_key = ?')
+      parameters.push(query.account)
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
     // The count, summary and page are read from the same SQLite snapshot.
@@ -57,10 +63,10 @@ export class SqliteLogRepository implements LogRepository {
       const totalPages = Math.max(1, Math.ceil(total / query.pageSize))
       const page = Math.min(query.page, totalPages)
       const rows = this.database.query<LogRow, (string | number)[]>(
-        `SELECT id, created_at, action, resource, actor_email, outcome, detail FROM console_logs ${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
+        `SELECT id, created_at, action, resource, actor_email, account_key, account_name, outcome, detail FROM console_logs ${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
       ).all(...parameters, query.pageSize, (page - 1) * query.pageSize)
       return {
-        entries: rows.map(row => ({ id: String(row.id), timestamp: row.created_at, action: row.action, resource: row.resource, actorEmail: row.actor_email, outcome: row.outcome, detail: row.detail })),
+        entries: rows.map(row => ({ id: String(row.id), timestamp: row.created_at, action: row.action, resource: row.resource, actorEmail: row.actor_email, accountKey: row.account_key, accountName: row.account_name, outcome: row.outcome, detail: row.detail })),
         page, pageSize: query.pageSize, total, totalPages,
         summary: { success: Number(totals?.success ?? 0), failure: Number(totals?.failure ?? 0) }
       }

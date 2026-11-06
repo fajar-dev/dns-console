@@ -1,18 +1,20 @@
 import type { ConsoleMetric } from '~/types/ui'
 import { findHostnameZone } from '#shared/utils/hostnames'
+import { tunnelRoutesPath } from '#shared/utils/resource-paths'
 import type { IngressRule, RouteConfiguration } from '#shared/types/cloudflare'
 
 export function useTunnelRoutes() {
-  const { data: tunnels, error, status } = useLazyFetch('/api/tunnels', { server: false, default: () => [] })
-  const { data: zones, error: zonesError, loading: zonesLoading } = useZones()
-  const selectedId = ref(tunnels.value[0]?.id ?? '')
+  const { data: tunnels, error, status, issues: tunnelIssues } = useTunnels()
+  const { data: allZones, error: zonesError, issues: zonesIssues, loading: zonesLoading } = useZones()
+  const selectedId = ref(tunnels.value[0]?.key ?? '')
   watch(tunnels, (value) => {
-    if (!value.some(tunnel => tunnel.id === selectedId.value)) selectedId.value = value[0]?.id ?? ''
+    if (!value.some(tunnel => tunnel.key === selectedId.value)) selectedId.value = value[0]?.key ?? ''
   })
-  const selected = computed(() => tunnels.value.find(tunnel => tunnel.id === selectedId.value))
+  const selected = computed(() => tunnels.value.find(tunnel => tunnel.key === selectedId.value))
+  const zones = computed(() => allZones.value.filter(zone => zone.owner.id === selected.value?.owner.id))
   const { data: configuration, error: configError, status: configStatus, refresh: reloadConfiguration } = useLazyAsyncData(
     () => `tunnel-configuration:${selectedId.value}`,
-    (_app, { signal }) => selectedId.value ? $fetch<RouteConfiguration>(`/api/tunnels/${selectedId.value}/routes`, { signal }) : Promise.resolve(null),
+    (_app, { signal }) => selected.value ? $fetch<RouteConfiguration>(tunnelRoutesPath(selected.value), { signal }) : Promise.resolve(null),
     { server: false, default: () => null }
   )
   const tunnelsLoading = computed(() => status.value === 'idle' || status.value === 'pending')
@@ -28,6 +30,9 @@ export function useTunnelRoutes() {
   const { page, pageSize, visible: visibleRules } = useTablePagination(filteredRules, [selectedId, routeSearch])
   watch(selectedId, () => {
     routeSearch.value = ''
+    modal.value = false
+    editing.value = undefined
+    deleting.value = undefined
   })
   const modal = ref(false)
   const editing = ref<{ rule: IngressRule, index: number }>()
@@ -45,11 +50,11 @@ export function useTunnelRoutes() {
     await reloadConfiguration()
   }
   async function remove() {
-    if (!deleting.value || !configuration.value) return
+    if (!deleting.value || !configuration.value || !selected.value) return
     const hostname = deleting.value.rule.hostname
     const zone = hostname ? findHostnameZone(hostname, zones.value) : undefined
     if (!zone) return
-    if (await mutate(() => $fetch(`/api/tunnels/${selectedId.value}/routes`, { method: 'DELETE', body: { zoneId: zone.id, index: deleting.value!.index, version: deleting.value!.version } }), 'Tunnel route removed')) deleting.value = undefined
+    if (await mutate(() => $fetch(tunnelRoutesPath(selected.value!), { method: 'DELETE', body: { zoneId: zone.id, index: deleting.value!.index, version: deleting.value!.version } }), 'Tunnel route removed')) deleting.value = undefined
     await reloadConfiguration()
   }
   function canManage(hostname?: string) {
@@ -57,7 +62,7 @@ export function useTunnelRoutes() {
   }
 
   const metrics = computed<ConsoleMetric[]>(() => [
-    { label: 'Tunnels', value: error.value ? '—' : tunnels.value.length, icon: 'i-lucide-network', description: 'In your Cloudflare account', loading: initialLoading.value },
+    { label: 'Tunnels', value: error.value ? '—' : tunnels.value.length, icon: 'i-lucide-network', description: 'Across all connected accounts', loading: initialLoading.value },
     { label: 'Healthy', value: error.value ? '—' : tunnels.value.filter(tunnel => tunnel.status === 'healthy').length, icon: 'i-lucide-circle-check', description: 'Ready to serve traffic', loading: initialLoading.value },
     { label: 'Connections', value: error.value ? '—' : tunnels.value.reduce((total, tunnel) => total + (tunnel.connections?.length ?? 0), 0), icon: 'i-lucide-plug', description: 'Reported tunnel connections', loading: initialLoading.value },
     { label: 'Published routes', value: configError.value || error.value || !selected.value ? '—' : rules.value.length, icon: 'i-lucide-route', description: selected.value?.name ?? 'Select a tunnel', loading: configInitialLoading.value || initialLoading.value }
@@ -67,6 +72,8 @@ export function useTunnelRoutes() {
     metrics,
     tunnels,
     error,
+    tunnelIssues,
+    zonesIssues,
     zones,
     zonesError,
     zonesLoading,

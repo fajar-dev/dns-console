@@ -3,6 +3,8 @@ const {
   metrics,
   tunnels,
   error,
+  tunnelIssues,
+  zonesIssues,
   zones,
   zonesError,
   zonesLoading,
@@ -46,6 +48,10 @@ const {
       :error="error"
       class="mb-6"
     />
+    <WorkspaceIssues
+      :issues="[...tunnelIssues, ...zonesIssues.filter(issue => !tunnelIssues.some(item => item.account.id === issue.account.id))]"
+      class="mb-6"
+    />
     <ConsoleMetrics :items="metrics" />
     <div class="grid overflow-hidden rounded-lg border border-default lg:grid-cols-[minmax(0,3fr)_minmax(0,7fr)]">
       <TunnelSelector
@@ -53,6 +59,7 @@ const {
         :tunnels="tunnels"
         :loading="initialLoading"
         :error="!!error"
+        :disabled="busy"
       />
       <section
         class="flex min-w-0 flex-col border-t border-default lg:border-t-0 lg:border-l"
@@ -103,6 +110,7 @@ const {
           >
             {{ selected.status }}
           </UBadge>
+          <AccountBadge :account="selected.owner" />
           <span class="text-muted">{{ selected.remote_config || selected.config_src === 'cloudflare' ? 'Remotely managed' : 'Locally managed' }}</span>
           <USkeleton
             v-if="configInitialLoading"
@@ -287,9 +295,9 @@ const {
     >
       <template #body>
         <TunnelRouteForm
-          v-if="modal && configuration"
+          v-if="modal && configuration && selected"
           :key="`${selectedId}-${editing?.index ?? 'new'}`"
-          :tunnel-id="selectedId"
+          :tunnel="selected"
           :version="configuration.version"
           :zones="zones"
           :rule="editing?.rule"

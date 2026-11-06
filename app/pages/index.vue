@@ -4,6 +4,7 @@ import { editableDnsTypes } from '#shared/validation/cloudflare'
 const {
   zones,
   zonesError,
+  zonesIssues,
   zonesLoading,
   selectedZone,
   zone,
@@ -49,6 +50,10 @@ const {
       :error="zonesError"
       class="mb-6"
     />
+    <WorkspaceIssues
+      :issues="zonesIssues"
+      class="mb-6"
+    />
     <ConsoleMetrics :items="stats" />
     <UCard :ui="{ body: 'p-0 sm:p-0', footer: 'p-0 sm:p-0' }">
       <template #header>
@@ -73,15 +78,21 @@ const {
               {{ filtered.length }}
             </UBadge>
           </div>
-          <USelect
-            v-model="selectedZone"
-            :items="zones.map(item => ({ label: item.name, value: item.id }))"
-            placeholder="Select a domain"
-            class="w-full sm:w-64"
-            :loading="zonesLoading"
-            :disabled="zonesLoading || !zones.length"
-            aria-label="Domain"
-          />
+          <div class="flex w-full flex-col items-end gap-2 sm:w-auto">
+            <USelect
+              v-model="selectedZone"
+              :items="zones.map(item => ({ label: `${item.name} · ${item.owner.name}`, value: item.key }))"
+              placeholder="Select a domain"
+              class="w-full sm:w-64"
+              :loading="zonesLoading"
+              :disabled="zonesLoading || busy || !zones.length"
+              aria-label="Domain"
+            />
+            <AccountBadge
+              v-if="zone"
+              :account="zone.owner"
+            />
+          </div>
         </div>
       </template>
       <div class="flex flex-wrap gap-3 border-b border-muted p-4">
@@ -253,10 +264,9 @@ const {
       <template #body>
         <DnsRecordForm
           v-if="modal && zone"
-          :key="editing?.id ?? 'new'"
+          :key="`${zone.key}:${editing?.id ?? 'new'}`"
           :record="editing"
-          :zone-id="zone.id"
-          :zone-name="zone.name"
+          :zone="zone"
           @saved="saved"
           @cancel="modal = false"
         />

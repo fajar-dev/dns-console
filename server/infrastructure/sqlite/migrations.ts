@@ -19,6 +19,14 @@ const migrations = [
       CREATE INDEX logs_outcome_created ON console_logs(outcome, created_at DESC, id DESC);
       CREATE INDEX logs_action_created ON console_logs(action, created_at DESC, id DESC);
     `
+  },
+  {
+    version: 2,
+    sql: `
+      ALTER TABLE console_logs ADD COLUMN account_key TEXT;
+      ALTER TABLE console_logs ADD COLUMN account_name TEXT;
+      CREATE INDEX logs_account_created ON console_logs(account_key, created_at DESC, id DESC);
+    `
   }
 ] as const
 

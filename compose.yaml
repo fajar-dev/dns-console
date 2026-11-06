@@ -19,6 +19,12 @@ services:
       - '${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000'
     volumes:
       - sqlite_data:/app/.data
+      - type: bind
+        source: ./config/cloudflare-accounts.json
+        target: /app/config/cloudflare-accounts.json
+        read_only: true
+        bind:
+          create_host_path: false
     environment:
       NUXT_SQLITE_PATH: /app/.data/dns-console.sqlite
       NUXT_APP_URL: ${NUXT_APP_URL:-http://localhost:3000}
@@ -27,8 +33,7 @@ services:
       NUXT_ENTRA_CLIENT_ID: ${NUXT_ENTRA_CLIENT_ID:?Set NUXT_ENTRA_CLIENT_ID in .env.docker}
       NUXT_ENTRA_CLIENT_SECRET: ${NUXT_ENTRA_CLIENT_SECRET:?Set NUXT_ENTRA_CLIENT_SECRET in .env.docker}
       NUXT_ENTRA_APP_ROLE: ${NUXT_ENTRA_APP_ROLE:-DNSConsole.Access}
-      NUXT_CLOUDFLARE_API_TOKEN: ${NUXT_CLOUDFLARE_API_TOKEN:-}
-      NUXT_CLOUDFLARE_ACCOUNT_ID: ${NUXT_CLOUDFLARE_ACCOUNT_ID:-}
+      NUXT_CLOUDFLARE_ACCOUNTS_FILE: /app/config/cloudflare-accounts.json
     logging:
       driver: json-file
       options:

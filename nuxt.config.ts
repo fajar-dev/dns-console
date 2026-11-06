@@ -27,8 +27,7 @@ export default defineNuxtConfig({
   },
 
   runtimeConfig: {
-    cloudflareApiToken: '',
-    cloudflareAccountId: '',
+    cloudflareAccountsFile: 'config/cloudflare-accounts.json',
     appUrl: 'http://localhost:3000',
     authSecret: '',
     entraTenantId: '',

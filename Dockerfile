@@ -15,7 +15,7 @@ RUN bun run build \
 
 FROM base AS runtime
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 NUXT_SQLITE_PATH=/app/.data/dns-console.sqlite
-RUN mkdir -p /app/.data && chown bun:bun /app/.data
+RUN mkdir -p /app/.data /app/config && chown bun:bun /app/.data
 COPY --from=build --chown=bun:bun /app/.output ./.output
 COPY --from=build --chown=bun:bun /app/docker-build/migrate.mjs ./scripts/migrate.mjs
 COPY --chown=bun:bun docker/entrypoint.mjs docker/healthcheck.mjs ./docker/

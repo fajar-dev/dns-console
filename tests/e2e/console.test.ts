@@ -10,13 +10,13 @@ let server: Awaited<ReturnType<typeof startProductionServer>>
 let identity: MicrosoftIdentity
 let cookie: string
 
-async function cookieFor(data: MicrosoftIdentity) {
-  const store = new AuthCookieStore<MicrosoftIdentity>(server.secret, 'identity', 900, true, `${server.tenant}:${server.client}`)
+async function cookieFor(data: MicrosoftIdentity, context = server) {
+  const store = new AuthCookieStore<MicrosoftIdentity>(context.secret, 'identity', 900, true, `${context.tenant}:${context.client}`)
   const handler = toWebHandler(createApp().use(defineEventHandler(async (event) => {
     await store.write(event, data, data.expiresAt)
     return { ok: true }
   })))
-  const response = await handler(new Request(`${server.base}/test-cookie`))
+  const response = await handler(new Request(`${context.base}/test-cookie`))
   return response.headers.get('set-cookie')!.split(';')[0]!
 }
 
@@ -69,7 +69,74 @@ describe('Built console', () => {
     expect(session.user?.email).toBe(identity.email)
     expect(session.user).not.toHaveProperty('roles')
     expect(JSON.stringify(session)).not.toContain(server.secret)
-    expect((await get('/api/zones')).status).toBe(503)
+    expect((await get('/api/zones')).status).toBe(200)
+  })
+
+  test('lists public account metadata only for authenticated users', async () => {
+    expect((await get('/api/accounts', false)).status).toBe(401)
+    const response = await get('/api/accounts')
+    expect(response.status).toBe(200)
+    const payload = await response.text()
+    expect(JSON.parse(payload)).toEqual([
+      { id: 'account-a', name: 'Account A', accountId: 'a'.repeat(32) },
+      { id: 'account-b', name: 'Account B', accountId: 'b'.repeat(32) }
+    ])
+    expect(payload).not.toContain('apiToken')
+    expect(payload).not.toContain('synthetic-token')
+    const html = await (await get('/settings')).text()
+    expect(html).not.toContain('Server environment')
+    expect(html).not.toContain('Cloudflare account</button>')
+    expect(html).not.toContain('synthetic-token')
+  })
+
+  test('combines all resources and routes writes to their owner without account selection', async () => {
+    const zones = await (await get('/api/zones')).json()
+    expect(zones.items.map((zone: { key: string }) => zone.key)).toEqual([`account-a:${'1'.repeat(32)}`, `account-b:${'2'.repeat(32)}`])
+    expect(zones.issues).toEqual([])
+    const tunnels = await (await get('/api/tunnels')).json()
+    expect(tunnels.items.map((tunnel: { name: string }) => tunnel.name)).toEqual(['Tunnel A', 'Tunnel B'])
+    expect(new Set(tunnels.items.map((tunnel: { key: string }) => tunnel.key)).size).toBe(2)
+    for (const key of ['a', 'b']) {
+      const account = `account-${key}`
+      const zoneId = (key === 'a' ? '1' : '2').repeat(32)
+      const response = await post(`/api/accounts/${account}/zones/${zoneId}/records`, JSON.stringify({
+        type: 'A', name: `app.${key}.example.test`, content: '192.0.2.1', ttl: 300, proxied: false
+      }))
+      expect(response.status).toBe(200)
+      const logs = await (await get(`/api/logs?account=${account}`)).json()
+      expect(logs.total).toBe(1)
+      expect(logs.entries[0].accountName).toBe(`Account ${key.toUpperCase()}`)
+      expect(logs.entries[0].actorEmail).toBe(identity.email)
+      const config = await (await get(`/api/accounts/${account}/tunnels/44444444-4444-4444-8444-444444444444/routes`)).json()
+      expect(config.config.ingress[0].hostname).toBe(`app.${key}.example.test`)
+    }
+    expect((await get(`/api/accounts/account-b/zones/${'1'.repeat(32)}/records`)).status).toBe(403)
+    expect((await post(`/api/accounts/account-b/zones/${'1'.repeat(32)}/records`, JSON.stringify({ type: 'A', name: 'bad.a.example.test', content: '192.0.2.1', ttl: 300, proxied: false }))).status).toBe(403)
+    expect((await get(`/api/accounts/unknown/zones/${'1'.repeat(32)}/records`)).status).toBe(400)
+    expect((await get(`/api/zones/${'1'.repeat(32)}/records`)).status).toBe(404)
+    const all = await (await get('/api/logs')).json()
+    expect(all.total).toBe(2)
+    const html = await (await get('/')).text()
+    expect(html).not.toContain('aria-label="Cloudflare account"')
+    expect(html).not.toContain('synthetic-token')
+  })
+
+  test('keeps healthy accounts available when another account fails', async () => {
+    const isolated = await startProductionServer({ failingAccount: 'b' })
+    try {
+      const headers = { Cookie: await cookieFor(identity, isolated) }
+      for (const collection of ['zones', 'tunnels']) {
+        const response = await fetch(`${isolated.base}/api/${collection}`, { headers })
+        expect(response.status).toBe(200)
+        const result = await response.json()
+        expect(result.items).toHaveLength(1)
+        expect(result.items[0].owner.id).toBe('account-a')
+        expect(result.issues[0].account.id).toBe('account-b')
+        expect(JSON.stringify(result)).not.toContain('synthetic-token')
+      }
+    } finally {
+      await isolated.stop()
+    }
   })
 
   test('rejects sessions with missing roles, foreign tenants and expired identities', async () => {

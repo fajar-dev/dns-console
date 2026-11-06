@@ -5,7 +5,7 @@ import type { LogRepository } from '../../server/domain/log-repository'
 
 describe('Log queries', () => {
   test('defaults and coerces pagination while bounding expensive queries', () => {
-    expect(logQuerySchema.parse({})).toEqual({ page: 1, pageSize: 25, search: '', category: 'all', outcome: 'all' })
+    expect(logQuerySchema.parse({})).toEqual({ page: 1, pageSize: 25, search: '', category: 'all', outcome: 'all', account: 'all' })
     expect(logQuerySchema.parse({ page: '2', pageSize: '10', search: ' app.example.com ' }).search).toBe('app.example.com')
     for (const query of [{ page: 0 }, { page: 1.5 }, { page: 1000001 }, { pageSize: 1000 }, { pageSize: 11 }, { outcome: 'invalid' }, { category: 'invalid' }, { search: 'a'.repeat(201) }, { sort: 'DROP TABLE' }, { page: ['1', '2'] }]) {
       expect(logQuerySchema.safeParse(query).success).toBe(false)

@@ -1,118 +1,153 @@
 <script setup lang="ts">
-import { environment } from '~/constants/configuration'
-
-const { session } = useAuth()
-const { data: zones, error, loading } = useZones()
-const initialLoading = computed(() => loading.value && !zones.value.length)
+const { accounts, error, status } = useCloudflareAccounts()
+const { data: zones, issues: zoneIssues, loading: zonesLoading, error: zonesError } = useZones()
+const { data: tunnels, issues: tunnelIssues, loading: tunnelsLoading, error: tunnelsError } = useTunnels()
+const loading = computed(() => status.value === 'idle' || status.value === 'pending')
+const connectionsLoading = computed(() => zonesLoading.value || tunnelsLoading.value)
+const cards = computed(() => accounts.value.map((account) => {
+  const issues = [...zoneIssues.value, ...tunnelIssues.value].filter(issue => issue.account.id === account.id)
+  return {
+    account,
+    domains: zones.value.filter(zone => zone.owner.id === account.id).length,
+    tunnels: tunnels.value.filter(tunnel => tunnel.owner.id === account.id).length,
+    message: issues[0]?.message,
+    failed: !!issues.length || !!zonesError.value || !!tunnelsError.value
+  }
+}))
 </script>
 
 <template>
   <div>
     <PageHeading
-      eyebrow="Workspace setup"
       icon="i-lucide-settings-2"
       title="Configuration"
-      description="Connect your Cloudflare account using server-side environment variables."
+      description="Your connected Cloudflare accounts."
     >
       <UBadge
-        :color="session?.cloudflareConfigured ? 'success' : 'warning'"
-        variant="subtle"
+        v-if="!loading && !error"
+        color="neutral"
+        variant="outline"
       >
-        {{ session?.cloudflareConfigured ? 'Credentials configured' : 'Setup required' }}
+        {{ accounts.length }} {{ accounts.length === 1 ? 'account' : 'accounts' }}
       </UBadge>
     </PageHeading>
-    <div class="grid gap-6 xl:grid-cols-3">
-      <UCard class="xl:col-span-2">
-        <template #header>
-          <h2 class="font-semibold">
-            Server environment
+
+    <RequestError
+      v-if="error"
+      :error="error"
+    />
+    <div
+      v-else-if="loading"
+      class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+      role="status"
+      aria-label="Loading accounts"
+    >
+      <UCard
+        v-for="i in 3"
+        :key="i"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <USkeleton class="h-5 w-28" />
+          <USkeleton class="h-5 w-20" />
+        </div>
+        <USkeleton class="mt-5 h-4 w-full" />
+        <div class="mt-6 grid grid-cols-2 gap-4">
+          <USkeleton
+            v-for="j in 2"
+            :key="j"
+            class="h-12 w-full"
+          />
+        </div>
+      </UCard>
+    </div>
+    <div
+      v-else-if="!cards.length"
+      class="rounded-lg border border-default p-6 text-sm text-muted"
+    >
+      Add credentials to <code>config/cloudflare-accounts.json</code> and restart the application.
+    </div>
+    <div
+      v-else
+      class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+      aria-label="Cloudflare accounts"
+    >
+      <UCard
+        v-for="item in cards"
+        :key="item.account.id"
+        class="h-full"
+      >
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="min-w-0">
+            <AccountBadge
+              :account="item.account"
+              prominent
+            />
           </h2>
-        </template>
-        <p class="mb-5 text-sm leading-relaxed text-muted">
-          Copy .env.example to .env for local development. Set these variables in your deployment environment for production, then restart the server. Secrets are never shown or editable in this panel.
-        </p>
-        <div class="divide-y divide-default">
-          <div
-            v-for="item in environment"
-            :key="item.name"
-            class="py-4 first:pt-0 last:pb-0"
+          <USkeleton
+            v-if="connectionsLoading"
+            class="h-5 w-20 shrink-0"
+          />
+          <UBadge
+            v-else
+            :color="item.failed ? 'warning' : 'success'"
+            variant="subtle"
+            size="sm"
+            class="shrink-0"
           >
-            <code class="text-xs font-semibold text-primary">{{ item.name }}</code>
-            <p class="mt-1.5 text-sm text-muted">
-              {{ item.description }}
+            {{ item.failed ? 'Needs attention' : 'Connected' }}
+          </UBadge>
+        </div>
+        <p
+          class="mt-3 truncate font-mono text-xs text-dimmed"
+          :title="item.account.accountId"
+        >
+          {{ item.account.accountId }}
+        </p>
+        <div class="mt-6 grid grid-cols-2 gap-4 border-t border-muted pt-4">
+          <div>
+            <p class="flex items-center gap-1.5 text-xs text-muted">
+              <UIcon
+                name="i-lucide-globe"
+                class="size-3.5"
+              />Domains
+            </p>
+            <USkeleton
+              v-if="zonesLoading"
+              class="mt-2 h-7 w-10"
+            />
+            <p
+              v-else
+              class="mt-1 text-2xl font-semibold tracking-tight"
+            >
+              {{ item.domains }}
+            </p>
+          </div>
+          <div>
+            <p class="flex items-center gap-1.5 text-xs text-muted">
+              <UIcon
+                name="i-lucide-network"
+                class="size-3.5"
+              />Tunnels
+            </p>
+            <USkeleton
+              v-if="tunnelsLoading"
+              class="mt-2 h-7 w-10"
+            />
+            <p
+              v-else
+              class="mt-1 text-2xl font-semibold tracking-tight"
+            >
+              {{ item.tunnels }}
             </p>
           </div>
         </div>
+        <p
+          v-if="item.message"
+          class="mt-4 text-xs leading-relaxed text-warning"
+        >
+          {{ item.message }}
+        </p>
       </UCard>
-      <div class="space-y-6">
-        <UCard>
-          <template #header>
-            <h2 class="font-semibold">
-              Token permissions
-            </h2>
-          </template>
-          <ul class="space-y-3 text-sm">
-            <li class="flex gap-2">
-              <UIcon
-                name="i-lucide-check"
-                class="mt-0.5 text-primary"
-              />Zone → Zone → Read
-            </li>
-            <li class="flex gap-2">
-              <UIcon
-                name="i-lucide-check"
-                class="mt-0.5 text-primary"
-              />Zone → DNS → Edit
-            </li>
-            <li class="flex gap-2">
-              <UIcon
-                name="i-lucide-check"
-                class="mt-0.5 text-primary"
-              />Account → Cloudflare Tunnel → Edit
-            </li>
-          </ul>
-          <p class="mt-4 text-xs leading-relaxed text-muted">
-            Limit the token to the account and zones you intend to manage.
-          </p>
-          <UButton
-            class="mt-5"
-            to="https://dash.cloudflare.com/profile/api-tokens"
-            target="_blank"
-            label="Manage API tokens"
-            variant="soft"
-            trailing-icon="i-lucide-arrow-up-right"
-          />
-        </UCard>
-        <UCard>
-          <template #header>
-            <h2 class="font-semibold">
-              Connection check
-            </h2>
-          </template>
-          <div
-            v-if="initialLoading"
-            role="status"
-            aria-label="Checking Cloudflare connection"
-            class="flex items-center gap-2"
-          >
-            <USkeleton class="size-4" />
-            <USkeleton class="h-4 w-40" />
-          </div>
-          <RequestError
-            v-else-if="error"
-            :error="error"
-          />
-          <p
-            v-else
-            class="flex items-center gap-2 text-sm"
-          >
-            <UIcon
-              name="i-lucide-circle-check"
-              class="text-primary"
-            />{{ zones.length }} accessible domains
-          </p>
-        </UCard>
-      </div>
     </div>
   </div>
 </template>

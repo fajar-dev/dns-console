@@ -35,7 +35,7 @@ describe('SQLite migration safety', () => {
     database.close()
     expect(() => openLogDatabase(filename)).toThrow('has changed')
     const future = new Database(filename)
-    future.exec('UPDATE console_migrations SET version = 99')
+    future.exec('UPDATE console_migrations SET version = 99 WHERE version = 1')
     future.close()
     expect(() => openLogDatabase(filename)).toThrow('newer than this application')
   })
@@ -74,7 +74,7 @@ describe('SQLite migration safety', () => {
     }
     const database = openLogDatabase(filename)
     try {
-      expect(database.query('SELECT version FROM console_migrations').all()).toEqual([{ version: 1n }])
+      expect(database.query('SELECT version FROM console_migrations').all()).toEqual([{ version: 1n }, { version: 2n }])
     } finally {
       database.close()
     }

@@ -4,11 +4,16 @@ export interface LogEntry {
   action: string
   resource: string
   actorEmail: string | null
+  accountKey: string | null
+  accountName: string | null
   outcome: 'success' | 'failure'
   detail: string
 }
 
-export type NewLogEntry = Omit<LogEntry, 'id' | 'timestamp'>
+export type NewLogEntry = Omit<LogEntry, 'id' | 'timestamp' | 'accountKey' | 'accountName'> & {
+  accountKey?: string
+  accountName?: string
+}
 
 export interface LogQuery {
   page: number
@@ -16,6 +21,7 @@ export interface LogQuery {
   search: string
   outcome: 'all' | 'success' | 'failure'
   category: 'all' | 'dns' | 'route'
+  account: string
 }
 
 export interface LogPage {

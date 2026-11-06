@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import type { FormSubmitEvent } from '@nuxt/ui'
+import type { WorkspaceZone } from '#shared/types/workspace'
+import { zoneRecordsPath } from '#shared/utils/resource-paths'
 import type { DnsRecordInput, DnsRecord } from '#shared/types/cloudflare'
 import { dnsRecordSchema, editableDnsTypes } from '#shared/validation/cloudflare'
 
-const props = defineProps<{ record?: DnsRecord, zoneName: string, zoneId: string }>()
+const props = defineProps<{ record?: DnsRecord, zone: WorkspaceZone }>()
 const emit = defineEmits<{ saved: [], cancel: [] }>()
-const state = reactive({ type: (props.record?.type ?? 'A') as typeof editableDnsTypes[number], name: props.record?.name ?? props.zoneName, content: props.record?.content ?? '', ttl: props.record?.ttl ?? 1, proxied: props.record?.proxied ?? false, priority: props.record?.priority ?? 10, comment: props.record?.comment ?? '' })
+const state = reactive({ type: (props.record?.type ?? 'A') as typeof editableDnsTypes[number], name: props.record?.name ?? props.zone.name, content: props.record?.content ?? '', ttl: props.record?.ttl ?? 1, proxied: props.record?.proxied ?? false, priority: props.record?.priority ?? 10, comment: props.record?.comment ?? '' })
 const { busy, mutate } = useMutation()
 const notesOpen = ref(!!state.comment)
 const ttlOptions = [
@@ -31,10 +33,10 @@ const contentField = computed(() => {
   switch (state.type) {
     case 'A': return { label: 'IPv4 address', placeholder: '192.0.2.1' }
     case 'AAAA': return { label: 'IPv6 address', placeholder: '2001:db8::1' }
-    case 'MX': return { label: 'Mail server', placeholder: `mail.${props.zoneName}` }
+    case 'MX': return { label: 'Mail server', placeholder: `mail.${props.zone.name}` }
     case 'TXT': return { label: 'Text value', placeholder: 'Enter the record value' }
     case 'NS': return { label: 'Nameserver', placeholder: 'ns1.example.com' }
-    default: return { label: 'Target hostname', placeholder: `target.${props.zoneName}` }
+    default: return { label: 'Target hostname', placeholder: `target.${props.zone.name}` }
   }
 })
 const proxySupported = computed(() => ['A', 'AAAA', 'CNAME'].includes(state.type))
@@ -43,7 +45,7 @@ watch(proxySupported, (supported) => {
 })
 async function submit(event: FormSubmitEvent<DnsRecordInput>) {
   const input = event.data
-  const path = `/api/zones/${props.zoneId}/records${props.record ? `/${props.record.id}` : ''}`
+  const path = `${zoneRecordsPath(props.zone)}${props.record ? `/${props.record.id}` : ''}`
   if (await mutate(() => $fetch(path, { method: props.record ? 'PATCH' : 'POST', body: input }), 'DNS record saved')) emit('saved')
 }
 </script>

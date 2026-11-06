@@ -13,7 +13,9 @@ export function useMutation() {
     } catch (error) {
       toast.add({ title: 'Unable to complete change', description: getErrorMessage(error), color: 'error', icon: 'i-lucide-circle-alert' })
       return false
-    } finally { busy.value = false }
+    } finally {
+      busy.value = false
+    }
   }
   return { busy, mutate }
 }

@@ -74,7 +74,7 @@ describe('SQLite logs integration', () => {
       migrateDatabase(reopened)
       const page = await new SqliteLogRepository(reopened).list(logQuerySchema.parse({}))
       expect(page.total).toBe(31)
-      expect(reopened.query('SELECT version FROM console_migrations').all()).toEqual([{ version: 1n }])
+      expect(reopened.query('SELECT version FROM console_migrations').all()).toEqual([{ version: 1n }, { version: 2n }])
       expect(reopened.query('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
     } finally {
       reopened.close()

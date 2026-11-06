@@ -22,3 +22,6 @@ tests
 *.sqlite-*
 *.db
 *.db-*
+
+# Server-only Cloudflare credentials
+config/cloudflare-accounts.json

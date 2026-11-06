@@ -1,6 +1,6 @@
 # DNS Console
 
-An internal application for Asset Monitoring Teknologi Indonesia to manage Cloudflare DNS records and Tunnel public hostname routes in one place. User access is managed through Microsoft Entra ID.
+An internal application for Asset Monitoring Teknologi Indonesia to centrally manage DNS records and Tunnel public hostname routes across multiple Cloudflare accounts. User access is managed through Microsoft Entra ID.
 
 Built with Nuxt, Nuxt UI, Bun, and SQLite.
 
@@ -10,8 +10,8 @@ Built with Nuxt, Nuxt UI, Bun, and SQLite.
 | --- | --- |
 | DNS records | Select domains, search and filter records, and manage hostnames, targets, TTL, proxy settings, MX priority, and comments. |
 | Tunnels & routes | View tunnel status and connections, then connect public hostnames to internal services. |
-| Logs | Search DNS and route changes by resource, actor email, category, status, and time. |
-| Configuration | Review server configuration requirements, token permissions, and Cloudflare domain access. |
+| Logs | Search DNS and route changes by resource, account, actor email, category and status. |
+| Configuration | View Cloudflare account cards with connection status and domain and tunnel counts. |
 
 Supported record types for creation and editing: **A, AAAA, CNAME, MX, TXT, NS, and PTR**. Other types remain visible; structured records such as SRV and CAA are edited through Cloudflare.
 
@@ -21,10 +21,10 @@ The interface includes light and dark modes, search, pagination, loading skeleto
 
 ## Using the application
 
-1. Choose **Continue with Microsoft** and sign in with an organization account that has been assigned access.
+1. Choose **Continue with Microsoft** and sign in with an assigned organization account. Domains and tunnels from all configured accounts are combined automatically.
 2. Open **DNS records**, select a domain, then use **Add record** or the three-dot menu to edit and delete records.
 3. Open **Tunnels & routes**, select a tunnel, then use **Publish route** to connect a hostname to an origin service, such as `http://localhost:3000`.
-4. Open **Logs** to review changes and the email addresses of the users who made them.
+4. Open **Logs** to review changes across accounts and see which account and user made each change.
 
 Logs cover changes made through DNS Console. Changes made directly in the Cloudflare dashboard or another application are not included.
 
@@ -42,9 +42,17 @@ Docker Engine with the Compose plugin is sufficient to run the application. Bun 
 
 ```bash
 cp .env.docker.example .env.docker
+cp config/cloudflare-accounts.example.json config/cloudflare-accounts.json
 ```
 
-Fill in the Cloudflare and Microsoft settings described below, including a random `NUXT_AUTH_SECRET` of at least 32 characters. Then start the application:
+Fill in the Microsoft settings in `.env.docker`, including a random `NUXT_AUTH_SECRET` of at least 32 characters. Configure Cloudflare accounts in the JSON file as described below. Compose mounts that file read-only; it is never included in the image. On a standard Linux Docker host, make it readable by the container user (UID 1000):
+
+```bash
+sudo chown 1000:1000 config/cloudflare-accounts.json
+sudo chmod 600 config/cloudflare-accounts.json
+```
+
+Then start the application:
 
 ```bash
 docker compose --env-file .env.docker up -d --build --wait
@@ -75,6 +83,8 @@ The application binds to `127.0.0.1` by default. For a deployed domain, configur
 ```bash
 bun install --frozen-lockfile
 cp .env.example .env
+cp config/cloudflare-accounts.example.json config/cloudflare-accounts.json
+chmod 600 config/cloudflare-accounts.json
 ```
 
 Set the following values in `.env`:
@@ -82,8 +92,7 @@ Set the following values in `.env`:
 | Variable | Description |
 | --- | --- |
 | `NUXT_APP_URL` | Application origin, such as `http://localhost:3000`, without a path or query. |
-| `NUXT_CLOUDFLARE_API_TOKEN` | API token for DNS and Tunnel access. |
-| `NUXT_CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID, not Zone ID. |
+| `NUXT_CLOUDFLARE_ACCOUNTS_FILE` | Server-only credentials JSON path; defaults to `config/cloudflare-accounts.json`. Compose sets the container path automatically. |
 | `NUXT_ENTRA_TENANT_ID` | Microsoft Entra Directory (tenant) ID. |
 | `NUXT_ENTRA_CLIENT_ID` | Application (client) ID from the app registration. |
 | `NUXT_ENTRA_CLIENT_SECRET` | Client secret **Value**, not Secret ID. |
@@ -110,13 +119,48 @@ The SQLite schema is initialized automatically on first database access. `bun ru
 
 ### Cloudflare
 
-Create an API token with the following permissions and limit its scope to the account and domains you intend to manage:
+Store Cloudflare credentials in `config/cloudflare-accounts.json`:
+
+```json
+{
+  "accounts": [
+    {
+      "id": "amti",
+      "name": "AMTI",
+      "accountId": "YOUR_32_CHARACTER_CLOUDFLARE_ACCOUNT_ID",
+      "apiToken": "YOUR_API_TOKEN"
+    },
+    {
+      "id": "second-account",
+      "name": "Second account",
+      "accountId": "ANOTHER_32_CHARACTER_ACCOUNT_ID",
+      "apiToken": "ANOTHER_API_TOKEN"
+    }
+  ]
+}
+```
+
+Use a unique, stable lowercase `id` with letters, numbers and hyphens (up to 64 characters); `all` is reserved. `name` is the display label. `accountId` is the Cloudflare Account ID, not a Zone ID. Duplicate account IDs are rejected. Up to 100 accounts are supported. An empty `accounts` array allows initial setup without Cloudflare credentials.
+
+Create an API token for each account with the following permissions and limit its scope to the intended account and domains:
 
 - **Zone → Zone → Read**
 - **Zone → DNS → Edit**
 - **Account → Cloudflare Tunnel → Edit**
 
-The token is stored on the server. The Configuration page shows configuration status and domain access results without exposing secret values.
+Domains and tunnels from every configured account appear in one workspace. Colored account labels identify the owner; no account switching is required. Selecting a domain or tunnel automatically routes reads and changes through its owner's credentials. Route publishing only offers domains belonging to the tunnel's account. If an account fails to load, the others remain available and the affected account is identified.
+
+Logs retain the account label at the time of each change. Search by account name, resource or actor to narrow the combined history. Existing logs without account metadata remain unattributed.
+
+The real credentials file is ignored by Git and excluded from Docker builds. Keep it on the server, restrict file permissions, and do not place it under `public/`. The browser receives only account IDs and labels. Restart the application after editing the file:
+
+```bash
+# Docker: recreating also picks up JSON files replaced through an atomic editor save
+docker compose --env-file .env.docker up -d --force-recreate app
+
+# PM2
+pm2 restart ecosystem.config.cjs --update-env
+```
 
 ### Microsoft Entra ID
 
@@ -127,7 +171,7 @@ The token is stored on the server. The Configuration page shows configuration st
 5. In **Enterprise applications**, enable **Assignment required?**, then assign users or groups to the role through **Users and groups**.
 6. Add `${NUXT_APP_URL}/login` as a Web redirect URI to return to the application after logout.
 
-All users with the required role have full console access. User assignments, roles, MFA, and sign-in policies are managed in Entra. Application sessions last up to 15 minutes; access changes take effect at the next sign-in.
+All users with the required role have full access to every configured Cloudflare account. User assignments, roles, MFA, and sign-in policies are managed in Entra. Application sessions last up to 15 minutes; access changes take effect at the next sign-in.
 
 ## Deployment
 
@@ -177,7 +221,7 @@ Follow the command printed by `pm2 startup`, then run `pm2 save` again. Applicat
 
 ## Scope
 
-DNS Console manages one Cloudflare account and one Microsoft Entra tenant. Tunnel creation and deletion, connector installation, Cloudflare Access policies, and private network CIDR routes are managed through Cloudflare.
+DNS Console manages multiple Cloudflare accounts within one Microsoft Entra tenant. Tunnel creation and deletion, connector installation, Cloudflare Access policies, and private network CIDR routes are managed through Cloudflare.
 
 DNS changes and tunnel configuration updates are separate operations. If a failed request leaves the outcome uncertain, inspect both resources before retrying. Avoid editing the same tunnel ingress configuration simultaneously through the application and the Cloudflare dashboard.
 

@@ -157,6 +157,11 @@ const { metrics, page, pageSize, search, outcome, category, outcomes, categories
                     <p class="mt-1 max-w-72 text-xs break-all text-muted">
                       {{ entry.resource }}
                     </p>
+                    <AccountBadge
+                      v-if="entry.accountKey && entry.accountName"
+                      :account="{ id: entry.accountKey, name: entry.accountName }"
+                      class="mt-1"
+                    />
                   </div>
                 </div>
               </td>

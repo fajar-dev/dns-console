@@ -2,8 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-/** An isolated build process with synthetic auth, its own SQLite file and no Cloudflare credentials. */
-export async function startProductionServer() {
+/** An isolated production process with synthetic credentials and a local Cloudflare transport fixture. */
+export async function startProductionServer(options: { failingAccount?: string } = {}) {
   if (!await Bun.file('.output/server/index.mjs').exists()) throw new Error('Run bun run build before end-to-end tests.')
   const reservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response() })
   const port = reservation.port!
@@ -13,13 +13,19 @@ export async function startProductionServer() {
   const client = '22222222-2222-4222-8222-222222222222'
   const secret = crypto.randomUUID() + crypto.randomUUID()
   const directory = await mkdtemp(join(tmpdir(), 'dns-e2e-'))
-  const child = Bun.spawn([process.execPath, '.output/server/index.mjs'], {
+  const accountsFile = join(directory, 'accounts.json')
+  await Bun.write(accountsFile, JSON.stringify({ accounts: [
+    { id: 'account-a', name: 'Account A', accountId: 'a'.repeat(32), apiToken: 'synthetic-token-a' },
+    { id: 'account-b', name: 'Account B', accountId: 'b'.repeat(32), apiToken: 'synthetic-token-b' }
+  ] }))
+  const child = Bun.spawn([process.execPath, '--preload', './tests/support/cloudflare-fetch-fixture.ts', '.output/server/index.mjs'], {
     env: {
+      DNS_TEST_FAIL_ACCOUNT: options.failingAccount ?? '',
       NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), NUXT_APP_URL: base,
       NUXT_ENTRA_TENANT_ID: tenant, NUXT_ENTRA_CLIENT_ID: client,
       NUXT_ENTRA_CLIENT_SECRET: 'synthetic-test-secret', NUXT_AUTH_SECRET: secret,
       NUXT_ENTRA_APP_ROLE: 'DNSConsole.Access',
-      NUXT_CLOUDFLARE_API_TOKEN: '', NUXT_CLOUDFLARE_ACCOUNT_ID: '', NUXT_SQLITE_PATH: join(directory, 'logs.sqlite')
+      NUXT_CLOUDFLARE_ACCOUNTS_FILE: accountsFile, NUXT_SQLITE_PATH: join(directory, 'logs.sqlite')
     },
     stdout: 'ignore', stderr: 'ignore'
   })

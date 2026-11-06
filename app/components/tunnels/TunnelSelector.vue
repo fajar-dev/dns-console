@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import type { Tunnel } from '#shared/types/cloudflare'
+import type { WorkspaceTunnel } from '#shared/types/workspace'
 
-const props = defineProps<{ tunnels: Tunnel[], loading: boolean, error: boolean }>()
+const props = defineProps<{ tunnels: WorkspaceTunnel[], loading: boolean, error: boolean, disabled?: boolean }>()
 const selectedId = defineModel<string>({ required: true })
 const search = ref('')
 const filtered = computed(() => {
   const term = search.value.trim().toLowerCase()
-  return props.tunnels.filter(tunnel => `${tunnel.name} ${tunnel.id}`.toLowerCase().includes(term))
+  return props.tunnels.filter(tunnel => `${tunnel.name} ${tunnel.id} ${tunnel.owner.name}`.toLowerCase().includes(term))
 })
 </script>
 
@@ -45,14 +45,14 @@ const filtered = computed(() => {
       />
       <USelectMenu
         v-model="selectedId"
-        :items="tunnels.map(tunnel => ({ label: tunnel.name, value: tunnel.id }))"
+        :items="tunnels.map(tunnel => ({ label: `${tunnel.name} · ${tunnel.owner.name}`, value: tunnel.key }))"
         value-key="value"
         icon="i-lucide-network"
         placeholder="Select a tunnel"
         aria-label="Select tunnel"
         class="mt-4 w-full lg:hidden"
         :loading="loading"
-        :disabled="loading || error || !tunnels.length"
+        :disabled="disabled || loading || error || !tunnels.length"
       />
     </header>
     <div
@@ -78,16 +78,17 @@ const filtered = computed(() => {
     >
       <li
         v-for="tunnel in filtered"
-        :key="tunnel.id"
+        :key="tunnel.key"
       >
         <button
           type="button"
           class="relative w-full min-w-0 px-5 py-4 text-left transition-colors outline-offset-[-3px] hover:text-highlighted focus-visible:outline-2 focus-visible:outline-primary"
-          :aria-pressed="selectedId === tunnel.id"
-          @click="selectedId = tunnel.id"
+          :aria-pressed="selectedId === tunnel.key"
+          :disabled="disabled"
+          @click="selectedId = tunnel.key"
         >
           <span
-            v-if="selectedId === tunnel.id"
+            v-if="selectedId === tunnel.key"
             class="absolute inset-y-4 left-0 w-0.5 bg-primary"
             aria-hidden="true"
           />
@@ -95,18 +96,22 @@ const filtered = computed(() => {
             <UIcon
               name="i-lucide-network"
               class="size-4 shrink-0"
-              :class="selectedId === tunnel.id ? 'text-primary' : 'text-muted'"
+              :class="selectedId === tunnel.key ? 'text-primary' : 'text-muted'"
             />
             <span
               class="min-w-0 flex-1 truncate text-sm font-semibold"
-              :class="selectedId === tunnel.id ? 'text-primary' : 'text-highlighted'"
+              :class="selectedId === tunnel.key ? 'text-primary' : 'text-highlighted'"
             >{{ tunnel.name }}</span>
             <UIcon
-              v-if="selectedId === tunnel.id"
+              v-if="selectedId === tunnel.key"
               name="i-lucide-chevron-right"
               class="size-4 shrink-0 text-primary"
             />
           </span>
+          <AccountBadge
+            :account="tunnel.owner"
+            class="mt-2"
+          />
           <span
             class="mt-2 block truncate font-mono text-[11px] text-dimmed"
             :title="tunnel.id"

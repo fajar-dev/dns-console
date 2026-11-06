@@ -55,6 +55,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Prepare isolated account configuration
+        run: |
+          mkdir -p config
+          echo '{"accounts": []}' > config/cloudflare-accounts.json
+          chmod 644 config/cloudflare-accounts.json
+
       - name: Build and start Docker stack
         run: docker compose --env-file .env.docker.example --project-name dns-console-ci up -d --build --wait --wait-timeout 120
 

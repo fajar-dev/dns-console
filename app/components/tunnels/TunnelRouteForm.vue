@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import type { FormSubmitEvent } from '@nuxt/ui'
+import type { WorkspaceTunnel } from '#shared/types/workspace'
+import { tunnelRoutesPath } from '#shared/utils/resource-paths'
 import type { RouteInput, IngressRule, Zone } from '#shared/types/cloudflare'
 import { findHostnameZone } from '#shared/utils/hostnames'
 import { routeSchema } from '#shared/validation/cloudflare'
 
-const props = defineProps<{ tunnelId: string, version: string, zones: Zone[], rule?: IngressRule, index?: number }>()
+const props = defineProps<{ tunnel: WorkspaceTunnel, version: string, zones: Zone[], rule?: IngressRule, index?: number }>()
 const emit = defineEmits<{ saved: [], changed: [] }>()
 const matchingZone = props.rule?.hostname ? findHostnameZone(props.rule.hostname, props.zones) : undefined
 const state = reactive({ zoneId: matchingZone?.id ?? props.zones[0]?.id ?? '', hostname: props.rule?.hostname ?? '', service: props.rule?.service ?? 'http://localhost:3000', version: props.version, index: props.index })
 const { busy, mutate } = useMutation()
 const stale = computed(() => props.version !== state.version)
 async function submit(event: FormSubmitEvent<RouteInput>) {
-  const saved = await mutate(() => $fetch(`/api/tunnels/${props.tunnelId}/routes`, { method: 'POST', body: event.data }), 'Tunnel route saved')
+  const saved = await mutate(() => $fetch(tunnelRoutesPath(props.tunnel), { method: 'POST', body: event.data }), 'Tunnel route saved')
   if (saved) emit('saved')
   else emit('changed')
 }

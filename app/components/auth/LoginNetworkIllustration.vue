@@ -1,7 +1,7 @@
 <template>
   <svg
     viewBox="0 0 440 300"
-    class="h-full max-h-64 w-full text-primary"
+    class="h-full max-h-[min(16rem,30dvh)] w-full text-primary"
     fill="none"
   >
     <circle
